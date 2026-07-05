@@ -1,18 +1,6 @@
 import json
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters,
-)
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from config import TOKEN
 
 ADMIN_CHAT_ID = 1027957590
@@ -21,14 +9,14 @@ main_keyboard = [
     ["💊 المنتجات", "✨ العناية بالبشرة"],
     ["💇 العناية بالشعر", "👶 الأم والطفل"],
     ["🩺 اسأل الصيدلي", "🎁 العروض"],
-    ["📦 طلباتي", "📞 تواصل معنا"],
+    ["📦 طلباتي", "📞 تواصل معنا"]
 ]
 
 products_keyboard = [
     ["💊 أدوية OTC", "💪 مكملات غذائية"],
     ["✨ مستحضرات تجميل", "👶 مستلزمات أطفال"],
     ["🩺 أجهزة طبية"],
-    ["🔙 رجوع للقائمة الرئيسية"],
+    ["🔙 رجوع للقائمة الرئيسية"]
 ]
 
 
@@ -40,14 +28,14 @@ def load_products():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏠 أهلاً بك في بوت صيدليتك\n\nاختر الخدمة التي تريدها:",
-        reply_markup=ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True)
     )
 
 
 async def show_products_menu(update: Update):
     await update.message.reply_text(
         "💊 قسم المنتجات\n\nاختر القسم الذي تريده:",
-        reply_markup=ReplyKeyboardMarkup(products_keyboard, resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup(products_keyboard, resize_keyboard=True)
     )
 
 
@@ -60,7 +48,7 @@ async def show_otc_products(update: Update):
 
     await update.message.reply_text(
         "💊 أدوية OTC\n\nاختر المنتج:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     )
 
 
@@ -75,11 +63,8 @@ async def show_product_details(update: Update, product_name: str):
     caption = (
         f"💊 {product['name']}\n\n"
         f"💰 السعر: {product['price']}\n"
-        f"📝 الاستخدام: {product['description']}"
-    )
-
-    order_button = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🛒 اطلب الآن", callback_data=f"order:{product['name']}")]]
+        f"📝 الاستخدام: {product['description']}\n\n"
+        f"للطلب اكتب: أريد {product['name']}"
     )
 
     image_path = product.get("image", "")
@@ -87,33 +72,11 @@ async def show_product_details(update: Update, product_name: str):
     if image_path:
         try:
             with open(image_path, "rb") as photo:
-                await update.message.reply_photo(
-                    photo=photo,
-                    caption=caption,
-                    reply_markup=order_button,
-                )
+                await update.message.reply_photo(photo=photo, caption=caption)
         except FileNotFoundError:
-            await update.message.reply_text(
-                caption + "\n\n⚠️ الصورة غير موجودة.",
-                reply_markup=order_button,
-            )
+            await update.message.reply_text(caption + "\n\n⚠️ الصورة غير موجودة.")
     else:
-        await update.message.reply_text(caption, reply_markup=order_button)
-
-
-async def handle_order_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    product_name = query.data.replace("order:", "", 1).strip()
-
-    context.user_data["order_product"] = product_name
-    context.user_data["order_step"] = "name"
-
-    await query.message.reply_text(
-        f"🛒 طلب جديد: {product_name}\n\n"
-        "من فضلك اكتب اسمك الكامل:"
-    )
+        await update.message.reply_text(caption)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,7 +109,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=order_message,
+                text=order_message
             )
         except Exception as e:
             print(f"خطأ إرسال الطلب للأدمن: {e}")
@@ -169,7 +132,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text in product_names:
         await show_product_details(update, text)
 
-    # أبقينا الكتابة اليدوية كخيار إضافي
     elif text.startswith("أريد "):
         product_name = text.replace("أريد ", "", 1).strip()
 
@@ -237,7 +199,6 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(handle_order_button, pattern=r"^order:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("Bot is running...")
