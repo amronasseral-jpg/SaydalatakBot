@@ -66,9 +66,17 @@ def product_by_name(product_name: str):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🏠 أهلاً بك في بوت صيدليتك\n\nاختر الخدمة التي تريدها:",
-        reply_markup=ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True),
+    with open("images/welcome.png", "rb") as photo:
+    await update.message.reply_photo(
+        photo=photo,
+        caption="""
+💚 أهلاً بك في صيدليتك
+
+🩺 صيدليتك الذكية... صحتك بين يديك.
+
+اختر الخدمة التي تريدها من القائمة بالأسفل 👇
+""",
+        reply_markup=main_keyboard
     )
 
 
