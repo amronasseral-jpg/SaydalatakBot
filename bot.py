@@ -140,8 +140,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     print("Starting bot...")
-    print("TOKEN length:", len(TOKEN))
-    print("TOKEN has colon:", ":" in TOKEN)
+
 
     app = ApplicationBuilder().token(TOKEN).build()
 
