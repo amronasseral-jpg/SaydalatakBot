@@ -66,18 +66,28 @@ def product_by_name(product_name: str):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    with open("images/welcome.png", "rb") as photo:
-    await update.message.reply_photo(
-        photo=photo,
-        caption="""
+    caption = """
 💚 أهلاً بك في صيدليتك
 
 🩺 صيدليتك الذكية... صحتك بين يديك.
 
 اختر الخدمة التي تريدها من القائمة بالأسفل 👇
-""",
-        reply_markup=main_keyboard
-    )
+"""
+
+    reply_markup = ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True)
+
+    try:
+        with open("images/welcome.png", "rb") as photo:
+            await update.message.reply_photo(
+                photo=photo,
+                caption=caption,
+                reply_markup=reply_markup
+            )
+    except FileNotFoundError:
+        await update.message.reply_text(
+            caption + "\n⚠️ لم يتم العثور على صورة الترحيب images/welcome.png",
+            reply_markup=reply_markup
+        )
 
 
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
