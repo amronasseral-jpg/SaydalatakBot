@@ -1,1 +1,3 @@
-iTOKEN = (os.getenv("TOKEN") or "").strip()
+import os
+
+TOKEN = (os.getenv("TOKEN") or "").strip()
