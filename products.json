@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Panadol Extra",
+    "category": "otc",
+    "price": "12 شيكل",
+    "description": "مسكن وخافض حرارة",
+    "image": "images/panadol.jpg"
+  },
+  {
+    "name": "Brufen 400",
+    "category": "otc",
+    "price": "10 شيكل",
+    "description": "مسكن ومضاد التهاب",
+    "image": ""
+  }
+]
