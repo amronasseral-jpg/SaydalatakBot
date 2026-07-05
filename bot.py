@@ -139,6 +139,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    print("TOKEN:", repr(TOKEN))
+    print("TOKEN exists:", TOKEN is not None)
+    print("TOKEN length:", len(TOKEN) if TOKEN else 0)
+    print("TOKEN has colon:", ":" in TOKEN if TOKEN else False)
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
