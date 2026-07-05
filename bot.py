@@ -133,7 +133,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "واتساب: ضع رقمك هنا\n"
             "تيليجرام: @ضع_اسمك_هنا"
         )
+    elif text.startswith("أريد "):
+        product_name = text.replace("أريد ", "").strip()
 
+        context.user_data["order_product"] = product_name
+        context.user_data["order_step"] = "name"
+
+        await update.message.reply_text(
+            f"🛒 طلب جديد: {product_name}\n\n"
+            "من فضلك اكتب اسمك الكامل:"
+        )
+
+    elif context.user_data.get("order_step") == "name":
+        context.user_data["customer_name"] = text
+        context.user_data["order_step"] = "phone"
+
+        await update.message.reply_text("📱 اكتب رقم الجوال:")
+
+    elif context.user_data.get("order_step") == "phone":
+        context.user_data["customer_phone"] = text
+        context.user_data["order_step"] = "address"
+
+        await update.message.reply_text("📍 اكتب عنوان التوصيل:")
+
+    elif context.user_data.get("order_step") == "address":
+        context.user_data["customer_address"] = text
+
+        product = context.user_data.get("order_product")
+        name = context.user_data.get("customer_name")
+        phone = context.user_data.get("customer_phone")
+        address = context.user_data.get("customer_address")
+
+        order_message = (
+            "🛒 طلب جديد من بوت صيدليتك\n\n"
+            f"💊 المنتج: {product}\n"
+            f"👤 الاسم: {name}\n"
+            f"📱 الجوال: {phone}\n"
+            f"📍 العنوان: {address}"
+        )
+
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=order_message
+        )
+
+        await update.message.reply_text(
+            "✅ تم استلام طلبك بنجاح.\n"
+            "سيتم التواصل معك لتأكيد الطلب والتوصيل."
+        )
+
+        context.user_data.clear()
     else:
         await update.message.reply_text("اكتب /start للعودة للقائمة الرئيسية.")
 
