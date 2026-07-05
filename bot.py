@@ -41,7 +41,7 @@ async def show_products_menu(update: Update):
 
 async def show_otc_products(update: Update):
     products = load_products()
-    otc_products = [p["name"] for p in products if p["category"] == "otc"]
+    otc_products = [p["name"] for p in products if p.get("category") == "otc"]
 
     keyboard = [[name] for name in otc_products]
     keyboard.append(["🔙 رجوع للمنتجات"])
@@ -54,7 +54,7 @@ async def show_otc_products(update: Update):
 
 async def show_product_details(update: Update, product_name: str):
     products = load_products()
-    product = next((p for p in products if p["name"] == product_name), None)
+    product = next((p for p in products if p.get("name") == product_name), None)
 
     if product is None:
         await update.message.reply_text("لم يتم العثور على المنتج.")
@@ -82,6 +82,7 @@ async def show_product_details(update: Update, product_name: str):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
+    # خطوات الطلب: الاسم ثم الجوال ثم العنوان
     if context.user_data.get("order_step") == "name":
         context.user_data["customer_name"] = text
         context.user_data["order_step"] = "phone"
@@ -105,8 +106,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 العنوان: {context.user_data.get('customer_address')}"
         )
 
-        await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=order_message)
-        await update.message.reply_text("✅ تم استلام طلبك بنجاح، سيتم التواصل معك لتأكيد الطلب.")
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=order_message
+            )
+        except Exception as e:
+            print(f"خطأ إرسال الطلب للأدمن: {e}")
+
+        await update.message.reply_text(
+            "✅ تم استلام طلبك بنجاح، سيتم التواصل معك لتأكيد الطلب."
+        )
+
         context.user_data.clear()
         return
 
