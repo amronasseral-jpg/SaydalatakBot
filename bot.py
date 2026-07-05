@@ -2,7 +2,9 @@ import json
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from config import TOKEN
+
 ADMIN_CHAT_ID = 1027957590
+
 main_keyboard = [
     ["💊 المنتجات", "✨ العناية بالبشرة"],
     ["💇 العناية بالشعر", "👶 الأم والطفل"],
@@ -78,7 +80,8 @@ async def show_product_details(update: Update, product_name: str):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    text = update.message.text.strip()
+
     if context.user_data.get("order_step") == "name":
         context.user_data["customer_name"] = text
         context.user_data["order_step"] = "phone"
@@ -106,6 +109,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ تم استلام طلبك بنجاح، سيتم التواصل معك لتأكيد الطلب.")
         context.user_data.clear()
         return
+
     product_names = [p["name"] for p in load_products()]
 
     if text == "💊 المنتجات":
@@ -114,11 +118,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "💊 أدوية OTC":
         await show_otc_products(update)
 
-        elif text in product_names:
+    elif text in product_names:
         await show_product_details(update, text)
 
     elif text.startswith("أريد "):
-        product_name = text.replace("أريد ", "").strip()
+        product_name = text.replace("أريد ", "", 1).strip()
 
         if product_name in product_names:
             context.user_data["order_product"] = product_name
@@ -173,14 +177,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "واتساب: ضع رقمك هنا\n"
             "تيليجرام: @ضع_اسمك_هنا"
         )
-    
+
     else:
         await update.message.reply_text("اكتب /start للعودة للقائمة الرئيسية.")
 
 
 def main():
     print("Starting bot...")
-
 
     app = ApplicationBuilder().token(TOKEN).build()
 
