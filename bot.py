@@ -116,7 +116,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text in product_names:
         await show_product_details(update, text)
+elif text.startswith("أريد "):
+    product_name = text.replace("أريد ", "").strip()
 
+    if product_name in product_names:
+        context.user_data["order_product"] = product_name
+        context.user_data["order_step"] = "name"
+
+        await update.message.reply_text(
+            f"🛒 طلب جديد: {product_name}\n\n"
+            "من فضلك اكتب اسمك الكامل:"
+        )
+    else:
+        await update.message.reply_text("❌ المنتج غير موجود.")
     elif text == "🔙 رجوع للمنتجات":
         await show_products_menu(update)
 
