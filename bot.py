@@ -334,29 +334,46 @@ def checkout_interrupt_keyboard():
     ])
 
 
-def canonical_text(text: str):
+def clean_button_text(text: str):
     text = str(text).strip()
+    # Remove common emojis/symbols used in buttons so RTL/LTR order doesn't matter
+    for ch in ["💊", "🔍", "✨", "💇", "👶", "🩺", "🎁", "🛒", "📦", "📞", "💪", "🔙"]:
+        text = text.replace(ch, "")
+    text = text.replace("الأ", "الا")
+    text = text.replace("إ", "ا").replace("أ", "ا").replace("آ", "ا")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def canonical_text(text: str):
+    original = str(text).strip()
+    cleaned = clean_button_text(original)
+
     mapping = {
-        "المنتجات 💊": "💊 المنتجات",
-        "بحث عن منتج 🔍": "🔍 البحث عن منتج",
-        "البحث عن منتج 🔍": "🔍 البحث عن منتج",
-        "السلة 🛒": "🛒 السلة",
-        "طلباتي 📦": "📦 طلباتي",
-        "تواصل معنا 📞": "📞 تواصل معنا",
-        "العروض 🎁": "🎁 العروض",
-        "اسأل الصيدلي 🩺": "🩺 اسأل الصيدلي",
-        "الأم والطفل 👶": "👶 الأم والطفل",
-        "العناية بالشعر 💇": "💇 العناية بالشعر",
-        "العناية بالبشرة ✨": "✨ العناية بالبشرة",
-        "أدوية OTC 💊": "💊 أدوية OTC",
-        "مكملات غذائية 💪": "💪 مكملات غذائية",
-        "مستحضرات تجميل ✨": "✨ مستحضرات تجميل",
-        "مستلزمات أطفال 👶": "👶 مستلزمات أطفال",
-        "أجهزة طبية 🩺": "🩺 أجهزة طبية",
-        "رجوع للمنتجات 🔙": "🔙 رجوع للمنتجات",
-        "رجوع للقائمة الرئيسية 🔙": "🔙 رجوع للقائمة الرئيسية",
+        "المنتجات": "💊 المنتجات",
+        "بحث عن منتج": "🔍 البحث عن منتج",
+        "البحث عن منتج": "🔍 البحث عن منتج",
+        "السلة": "🛒 السلة",
+        "طلباتي": "📦 طلباتي",
+        "تواصل معنا": "📞 تواصل معنا",
+        "العروض": "🎁 العروض",
+        "اسال الصيدلي": "🩺 اسأل الصيدلي",
+        "الام والطفل": "👶 الأم والطفل",
+        "العنايه بالشعر": "💇 العناية بالشعر",
+        "العنايه بالبشره": "✨ العناية بالبشرة",
+        "ادويه OTC": "💊 أدوية OTC",
+        "ادوية OTC": "💊 أدوية OTC",
+        "مكملات غذائيه": "💪 مكملات غذائية",
+        "مستحضرات تجميل": "✨ مستحضرات تجميل",
+        "مستلزمات اطفال": "👶 مستلزمات أطفال",
+        "اجهزه طبيه": "🩺 أجهزة طبية",
+        "اجهزة طبية": "🩺 أجهزة طبية",
+        "رجوع للمنتجات": "🔙 رجوع للمنتجات",
+        "رجوع للقائمه الرئيسيه": "🔙 رجوع للقائمة الرئيسية",
+        "رجوع للقائمة الرئيسية": "🔙 رجوع للقائمة الرئيسية",
     }
-    return mapping.get(text, text)
+
+    return mapping.get(cleaned, original)
 
 
 def is_same_button(text: str, label: str):
@@ -887,7 +904,21 @@ async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = canonical_text(update.message.text.strip())
+    raw_text = update.message.text.strip()
+    text = canonical_text(raw_text)
+    print(f"USER_TEXT_RAW={repr(raw_text)} | CANONICAL={repr(text)}")
+
+    if text == "💊 المنتجات" and not context.user_data.get("order_step"):
+        await show_products_menu(update)
+        return
+
+    if text == "🔍 البحث عن منتج" and not context.user_data.get("order_step"):
+        context.user_data["search_step"] = True
+        await update.message.reply_text(
+            "🔍 اكتب اسم المنتج أو جزءًا منه:\n\n"
+            "مثال: Panadol / Brufen / فيتامين / صداع"
+        )
+        return
 
     if context.user_data.get("search_step"):
         if is_navigation_or_product_text(text):
