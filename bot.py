@@ -2,6 +2,7 @@ import json
 import os
 import re
 import difflib
+import traceback
 from datetime import datetime
 
 from telegram import (
@@ -405,6 +406,31 @@ def is_navigation_or_product_text(text: str):
     return text in navigation_buttons or text in product_names
 
 
+def is_otc_product(product):
+    category = normalize_text(product.get("category", ""))
+    therapeutic = normalize_text(product.get("therapeutic_class", ""))
+    name = normalize_text(product.get("name", ""))
+    return (
+        category in ["otc", "ادويه otc", "ادوية otc"]
+        or "otc" in category
+        or "مسكن" in therapeutic
+        or "خافض" in therapeutic
+        or "معده" in therapeutic
+        or "حساسيه" in therapeutic
+    )
+
+
+def product_list_keyboard(products, max_items=30):
+    keyboard = []
+    for product in products[:max_items]:
+        name = product.get("name")
+        if name:
+            keyboard.append([name])
+    keyboard.append(["🔍 البحث عن منتج"])
+    keyboard.append(["🔙 رجوع للمنتجات"])
+    return keyboard
+
+
 async def show_products_menu_to_message(message):
     await message.reply_text(
         "💊 قسم المنتجات\n\nاختر القسم الذي تريده:",
@@ -414,14 +440,21 @@ async def show_products_menu_to_message(message):
 
 async def show_otc_products_to_message(message):
     products = load_products()
-    otc_products = [p["name"] for p in products if p.get("category") == "otc"]
 
-    keyboard = [[name] for name in otc_products]
-    keyboard.append(["🔙 رجوع للمنتجات"])
+    otc_products = [p for p in products if is_otc_product(p)]
+
+    # إذا لم تكن التصنيفات مضبوطة في products.json، اعرض أول 30 منتج بدل ما يتوقف البوت
+    if not otc_products:
+        otc_products = products[:30]
 
     await message.reply_text(
-        "💊 أدوية OTC\n\nاختر المنتج:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+        "💊 أدوية OTC\n\n"
+        "اختر المنتج من القائمة أو استخدم زر 🔍 البحث عن منتج للوصول لأي صنف بسرعة.\n\n"
+        f"📦 المعروض الآن: {min(len(otc_products), 30)} منتج",
+        reply_markup=ReplyKeyboardMarkup(
+            product_list_keyboard(otc_products, max_items=30),
+            resize_keyboard=True
+        ),
     )
 
 
@@ -1143,6 +1176,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     print(f"Unhandled error: {context.error}")
+    traceback.print_exception(type(context.error), context.error, context.error.__traceback__)
 
 
 def main():

@@ -1,1 +1,10 @@
-TOKEN = "8806198611:AAEiaRmhGgGrfAmo4W_DfpxPhl7wm7XNf30"
+import os
+
+TOKEN = os.getenv("TOKEN")
+
+if TOKEN is None:
+    raise ValueError("TOKEN environment variable is not set")
+
+TOKEN = TOKEN.strip()
+
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
