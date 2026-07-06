@@ -176,12 +176,27 @@ def search_results_keyboard(results):
     return InlineKeyboardMarkup(buttons)
 
 
+def to_float(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip()
+        if not text or text.lower() in ["#n/a", "nan", "none", "null"]:
+            return default
+        match = re.search(r"\d+(?:\.\d+)?", text)
+        return float(match.group()) if match else default
+    except Exception:
+        return default
+
+
 def product_box_price(product):
-    return float(product.get("sell_price_box") or product.get("price") or 0)
+    return to_float(product.get("sell_price_box") or product.get("price") or product.get("sell_price") or 0)
 
 
 def product_strip_price(product):
-    return float(product.get("sell_price_strip") or 0)
+    return to_float(product.get("sell_price_strip") or 0)
 
 
 def product_pack_info(product):
@@ -319,7 +334,37 @@ def checkout_interrupt_keyboard():
     ])
 
 
+def canonical_text(text: str):
+    text = str(text).strip()
+    mapping = {
+        "المنتجات 💊": "💊 المنتجات",
+        "بحث عن منتج 🔍": "🔍 البحث عن منتج",
+        "البحث عن منتج 🔍": "🔍 البحث عن منتج",
+        "السلة 🛒": "🛒 السلة",
+        "طلباتي 📦": "📦 طلباتي",
+        "تواصل معنا 📞": "📞 تواصل معنا",
+        "العروض 🎁": "🎁 العروض",
+        "اسأل الصيدلي 🩺": "🩺 اسأل الصيدلي",
+        "الأم والطفل 👶": "👶 الأم والطفل",
+        "العناية بالشعر 💇": "💇 العناية بالشعر",
+        "العناية بالبشرة ✨": "✨ العناية بالبشرة",
+        "أدوية OTC 💊": "💊 أدوية OTC",
+        "مكملات غذائية 💪": "💪 مكملات غذائية",
+        "مستحضرات تجميل ✨": "✨ مستحضرات تجميل",
+        "مستلزمات أطفال 👶": "👶 مستلزمات أطفال",
+        "أجهزة طبية 🩺": "🩺 أجهزة طبية",
+        "رجوع للمنتجات 🔙": "🔙 رجوع للمنتجات",
+        "رجوع للقائمة الرئيسية 🔙": "🔙 رجوع للقائمة الرئيسية",
+    }
+    return mapping.get(text, text)
+
+
+def is_same_button(text: str, label: str):
+    return canonical_text(text) == label
+
+
 def is_navigation_or_product_text(text: str):
+    text = canonical_text(text)
     navigation_buttons = {
         "💊 المنتجات",
         "🔍 البحث عن منتج",
@@ -431,6 +476,7 @@ async def show_product_details_to_message(message, product_name: str):
 
 
 async def route_shop_text_to_message(message, context: ContextTypes.DEFAULT_TYPE, text: str):
+    text = canonical_text(text)
     product_names = [p["name"] for p in load_products()]
 
     if text == "💊 المنتجات":
@@ -841,7 +887,7 @@ async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+    text = canonical_text(update.message.text.strip())
 
     if context.user_data.get("search_step"):
         if is_navigation_or_product_text(text):
@@ -1064,6 +1110,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اكتب /start للعودة للقائمة الرئيسية.")
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    print(f"Unhandled error: {context.error}")
+
+
 def main():
     print("Starting bot...")
 
@@ -1083,6 +1133,7 @@ def main():
     app.add_handler(CallbackQueryHandler(checkout_cart, pattern=r"^cart:checkout$"))
     app.add_handler(CallbackQueryHandler(handle_admin_order_action, pattern=r"^admin:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_error_handler(error_handler)
 
     print("Bot is running...")
     app.run_polling()
