@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 
 from telegram import (
@@ -26,7 +27,8 @@ main_keyboard = [
     ["💊 المنتجات", "✨ العناية بالبشرة"],
     ["💇 العناية بالشعر", "👶 الأم والطفل"],
     ["🩺 اسأل الصيدلي", "🎁 العروض"],
-    ["📦 طلباتي", "📞 تواصل معنا"],
+    ["🛒 السلة", "📦 طلباتي"],
+    ["📞 تواصل معنا"],
 ]
 
 products_keyboard = [
@@ -65,6 +67,89 @@ def product_by_name(product_name: str):
     return next((p for p in load_products() if p.get("name") == product_name), None)
 
 
+def product_by_index(index: int):
+    products = load_products()
+    if 0 <= index < len(products):
+        return products[index]
+    return None
+
+
+def product_index_by_name(product_name: str):
+    for idx, product in enumerate(load_products()):
+        if product.get("name") == product_name:
+            return idx
+    return -1
+
+
+def parse_price(price_value):
+    """Extract a numeric price from values like '12 شيكل' or 12."""
+    if isinstance(price_value, (int, float)):
+        return float(price_value)
+    text = str(price_value)
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    return float(match.group()) if match else 0.0
+
+
+def format_price(value: float):
+    if float(value).is_integer():
+        return f"{int(value)} شيكل"
+    return f"{value:.2f} شيكل"
+
+
+def get_cart(context: ContextTypes.DEFAULT_TYPE):
+    if "cart" not in context.user_data:
+        context.user_data["cart"] = {}
+    return context.user_data["cart"]
+
+
+def cart_total(cart):
+    total = 0.0
+    for item in cart.values():
+        total += float(item.get("price", 0)) * int(item.get("qty", 1))
+    return total
+
+
+def cart_count(cart):
+    return sum(int(item.get("qty", 1)) for item in cart.values())
+
+
+def cart_text(cart):
+    if not cart:
+        return "🛒 سلة المشتريات فارغة حالياً."
+
+    lines = ["🛒 سلة مشترياتك\n"]
+    for i, item in enumerate(cart.values(), start=1):
+        qty = int(item.get("qty", 1))
+        price = float(item.get("price", 0))
+        subtotal = qty * price
+        lines.append(f"{i}. {item['name']} × {qty} = {format_price(subtotal)}")
+
+    lines.append("\n━━━━━━━━━━━━")
+    lines.append(f"💰 الإجمالي: {format_price(cart_total(cart))}")
+    return "\n".join(lines)
+
+
+def cart_keyboard(cart):
+    buttons = []
+
+    for product_name in cart.keys():
+        idx = product_index_by_name(product_name)
+        if idx == -1:
+            continue
+        buttons.append([
+            InlineKeyboardButton(f"➖ {product_name}", callback_data=f"cart:dec:{idx}"),
+            InlineKeyboardButton("➕", callback_data=f"cart:inc:{idx}"),
+            InlineKeyboardButton("🗑️", callback_data=f"cart:remove:{idx}"),
+        ])
+
+    buttons.append([InlineKeyboardButton("➕ متابعة التسوق", callback_data="cart:continue")])
+    if cart:
+        buttons.append([InlineKeyboardButton("✅ إتمام الطلب", callback_data="cart:checkout")])
+        buttons.append([InlineKeyboardButton("🗑️ إفراغ السلة", callback_data="cart:clear")])
+
+    return InlineKeyboardMarkup(buttons)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = """
 💚 أهلاً بك في صيدليتك
@@ -81,12 +166,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_photo(
                 photo=photo,
                 caption=caption,
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
             )
     except FileNotFoundError:
         await update.message.reply_text(
             caption + "\n⚠️ لم يتم العثور على صورة الترحيب images/welcome.png",
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
 
 
@@ -132,14 +217,18 @@ async def show_product_details(update: Update, product_name: str):
         await update.message.reply_text("لم يتم العثور على المنتج.")
         return
 
+    idx = product_index_by_name(product_name)
+
     caption = (
         f"💊 {product['name']}\n\n"
         f"💰 السعر: {product['price']}\n"
         f"📝 الاستخدام: {product['description']}"
     )
 
-    order_button = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛒 اطلب الآن", callback_data=f"order:{product['name']}")]
+    product_buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ أضف إلى السلة", callback_data=f"cart:add:{idx}")],
+        [InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")],
+        [InlineKeyboardButton("⚡ اطلب الآن", callback_data=f"order:{product['name']}")],
     ])
 
     image_path = product.get("image", "")
@@ -150,15 +239,15 @@ async def show_product_details(update: Update, product_name: str):
                 await update.message.reply_photo(
                     photo=photo,
                     caption=caption,
-                    reply_markup=order_button,
+                    reply_markup=product_buttons,
                 )
         except FileNotFoundError:
             await update.message.reply_text(
                 caption + "\n\n⚠️ الصورة غير موجودة.",
-                reply_markup=order_button,
+                reply_markup=product_buttons,
             )
     else:
-        await update.message.reply_text(caption, reply_markup=order_button)
+        await update.message.reply_text(caption, reply_markup=product_buttons)
 
 
 async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -175,11 +264,120 @@ async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["order_product"] = product_name
     context.user_data["order_step"] = "name"
     context.user_data["customer_chat_id"] = query.from_user.id
+    context.user_data.pop("checkout_cart", None)
 
     await query.message.reply_text(
         f"🛒 طلب جديد: {product_name}\n\n"
         "من فضلك اكتب اسمك الكامل:"
     )
+
+
+async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    idx = int(query.data.split(":")[-1])
+    product = product_by_index(idx)
+    if product is None:
+        await query.message.reply_text("❌ المنتج غير موجود.")
+        return
+
+    cart = get_cart(context)
+    product_name = product["name"]
+    if product_name not in cart:
+        cart[product_name] = {
+            "name": product_name,
+            "qty": 0,
+            "price": parse_price(product.get("price", 0)),
+            "price_text": str(product.get("price", "")),
+        }
+    cart[product_name]["qty"] += 1
+
+    await query.message.reply_text(
+        f"✅ تمت إضافة {product_name} إلى السلة.\n\n"
+        f"عدد المنتجات في السلة: {cart_count(cart)}",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")],
+            [InlineKeyboardButton("➕ متابعة التسوق", callback_data="cart:continue")],
+            [InlineKeyboardButton("✅ إتمام الطلب", callback_data="cart:checkout")],
+        ]),
+    )
+
+
+async def view_cart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    cart = get_cart(context)
+    await query.message.reply_text(cart_text(cart), reply_markup=cart_keyboard(cart))
+
+
+async def update_cart_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    _, action, idx_text = query.data.split(":")
+    product = product_by_index(int(idx_text))
+    if product is None:
+        await query.message.reply_text("❌ المنتج غير موجود.")
+        return
+
+    product_name = product["name"]
+    cart = get_cart(context)
+
+    if product_name not in cart:
+        await query.message.reply_text("❌ المنتج غير موجود في السلة.")
+        return
+
+    if action == "inc":
+        cart[product_name]["qty"] += 1
+    elif action == "dec":
+        cart[product_name]["qty"] -= 1
+        if cart[product_name]["qty"] <= 0:
+            del cart[product_name]
+    elif action == "remove":
+        del cart[product_name]
+
+    await query.message.reply_text(cart_text(cart), reply_markup=cart_keyboard(cart))
+
+
+async def clear_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["cart"] = {}
+    await query.message.reply_text("🗑️ تم إفراغ السلة.", reply_markup=cart_keyboard({}))
+
+
+async def continue_shopping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        "اختر القسم الذي تريد متابعة التسوق منه:",
+        reply_markup=ReplyKeyboardMarkup(products_keyboard, resize_keyboard=True),
+    )
+
+
+async def checkout_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    cart = get_cart(context)
+    if not cart:
+        await query.message.reply_text("🛒 السلة فارغة، أضف منتجات أولاً.")
+        return
+
+    context.user_data["checkout_cart"] = True
+    context.user_data["order_step"] = "name"
+    context.user_data["customer_chat_id"] = query.from_user.id
+
+    await query.message.reply_text(
+        "✅ سنقوم بإتمام طلب السلة.\n\n"
+        "من فضلك اكتب اسمك الكامل:"
+    )
+
+
+async def show_cart_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cart = get_cart(context)
+    await update.message.reply_text(cart_text(cart), reply_markup=cart_keyboard(cart))
 
 
 async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,16 +452,46 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["customer_address"] = text
 
         order_id = create_order_id()
-        product_name = context.user_data.get("order_product")
         customer_name = context.user_data.get("customer_name")
         customer_phone = context.user_data.get("customer_phone")
         customer_address = context.user_data.get("customer_address")
         customer_chat_id = context.user_data.get("customer_chat_id", update.effective_chat.id)
 
+        cart = get_cart(context)
+        is_cart_order = bool(context.user_data.get("checkout_cart")) and bool(cart)
+
+        if is_cart_order:
+            items = []
+            items_text_lines = []
+            for item in cart.values():
+                qty = int(item.get("qty", 1))
+                price = float(item.get("price", 0))
+                subtotal = qty * price
+                items.append({
+                    "name": item["name"],
+                    "qty": qty,
+                    "price": price,
+                    "subtotal": subtotal,
+                })
+                items_text_lines.append(f"• {item['name']} × {qty} = {format_price(subtotal)}")
+
+            total = cart_total(cart)
+            product_name = "طلب متعدد المنتجات"
+            items_text = "\n".join(items_text_lines)
+        else:
+            product_name = context.user_data.get("order_product")
+            product = product_by_name(product_name) or {}
+            price = parse_price(product.get("price", 0))
+            items = [{"name": product_name, "qty": 1, "price": price, "subtotal": price}]
+            total = price
+            items_text = f"• {product_name} × 1 = {format_price(price)}"
+
         order = {
             "id": order_id,
             "status": "new",
             "product": product_name,
+            "items": items,
+            "total": total,
             "customer_name": customer_name,
             "customer_phone": customer_phone,
             "customer_address": customer_address,
@@ -278,10 +506,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         order_message = (
             f"🛒 طلب جديد\n\n"
             f"🆔 رقم الطلب: #{order_id}\n"
-            f"💊 المنتج: {product_name}\n"
             f"👤 الاسم: {customer_name}\n"
             f"📱 الجوال: {customer_phone}\n"
-            f"📍 العنوان: {customer_address}"
+            f"📍 العنوان: {customer_address}\n\n"
+            f"🛍️ المنتجات:\n{items_text}\n\n"
+            f"💰 الإجمالي: {format_price(total)}"
         )
 
         admin_buttons = InlineKeyboardMarkup([
@@ -304,10 +533,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ تم استلام طلبك بنجاح.\n\n"
             f"🆔 رقم الطلب: #{order_id}\n"
+            f"💰 الإجمالي: {format_price(total)}\n"
             "سيتم التواصل معك لتأكيد الطلب."
         )
 
-        context.user_data.clear()
+        context.user_data.pop("order_step", None)
+        context.user_data.pop("order_product", None)
+        context.user_data.pop("checkout_cart", None)
+        context.user_data["cart"] = {}
         return
 
     product_names = [p["name"] for p in load_products()]
@@ -321,6 +554,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text in product_names:
         await show_product_details(update, text)
 
+    elif text == "🛒 السلة":
+        await show_cart_from_message(update, context)
+
     elif text.startswith("أريد "):
         product_name = text.replace("أريد ", "", 1).strip()
 
@@ -328,6 +564,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["order_product"] = product_name
             context.user_data["order_step"] = "name"
             context.user_data["customer_chat_id"] = update.effective_chat.id
+            context.user_data.pop("checkout_cart", None)
 
             await update.message.reply_text(
                 f"🛒 طلب جديد: {product_name}\n\n"
@@ -391,6 +628,12 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CallbackQueryHandler(start_order_from_button, pattern=r"^order:"))
+    app.add_handler(CallbackQueryHandler(add_to_cart, pattern=r"^cart:add:"))
+    app.add_handler(CallbackQueryHandler(view_cart_callback, pattern=r"^cart:view$"))
+    app.add_handler(CallbackQueryHandler(update_cart_quantity, pattern=r"^cart:(inc|dec|remove):"))
+    app.add_handler(CallbackQueryHandler(clear_cart, pattern=r"^cart:clear$"))
+    app.add_handler(CallbackQueryHandler(continue_shopping, pattern=r"^cart:continue$"))
+    app.add_handler(CallbackQueryHandler(checkout_cart, pattern=r"^cart:checkout$"))
     app.add_handler(CallbackQueryHandler(handle_admin_order_action, pattern=r"^admin:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
