@@ -150,6 +150,159 @@ def cart_keyboard(cart):
     return InlineKeyboardMarkup(buttons)
 
 
+def checkout_interrupt_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛒 متابعة التسوق", callback_data="checkout_interrupt:shop")],
+        [InlineKeyboardButton("✅ متابعة إتمام الطلب", callback_data="checkout_interrupt:checkout")],
+    ])
+
+
+def is_navigation_or_product_text(text: str):
+    navigation_buttons = {
+        "💊 المنتجات",
+        "💊 أدوية OTC",
+        "💪 مكملات غذائية",
+        "✨ مستحضرات تجميل",
+        "👶 مستلزمات أطفال",
+        "🩺 أجهزة طبية",
+        "🔙 رجوع للمنتجات",
+        "🔙 رجوع للقائمة الرئيسية",
+        "✨ العناية بالبشرة",
+        "💇 العناية بالشعر",
+        "👶 الأم والطفل",
+        "🩺 اسأل الصيدلي",
+        "🎁 العروض",
+        "🛒 السلة",
+        "📦 طلباتي",
+        "📞 تواصل معنا",
+    }
+    product_names = [p["name"] for p in load_products()]
+    return text in navigation_buttons or text in product_names
+
+
+async def show_products_menu_to_message(message):
+    await message.reply_text(
+        "💊 قسم المنتجات\n\nاختر القسم الذي تريده:",
+        reply_markup=ReplyKeyboardMarkup(products_keyboard, resize_keyboard=True),
+    )
+
+
+async def show_otc_products_to_message(message):
+    products = load_products()
+    otc_products = [p["name"] for p in products if p.get("category") == "otc"]
+
+    keyboard = [[name] for name in otc_products]
+    keyboard.append(["🔙 رجوع للمنتجات"])
+
+    await message.reply_text(
+        "💊 أدوية OTC\n\nاختر المنتج:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
+    )
+
+
+async def show_product_details_to_message(message, product_name: str):
+    product = product_by_name(product_name)
+
+    if product is None:
+        await message.reply_text("لم يتم العثور على المنتج.")
+        return
+
+    idx = product_index_by_name(product_name)
+
+    caption = (
+        f"💊 {product['name']}\n\n"
+        f"💰 السعر: {product['price']}\n"
+        f"📝 الاستخدام: {product['description']}"
+    )
+
+    product_buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ أضف إلى السلة", callback_data=f"cart:add:{idx}")],
+        [InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")],
+        [InlineKeyboardButton("⚡ اطلب الآن", callback_data=f"order:{product['name']}")],
+    ])
+
+    image_path = product.get("image", "")
+
+    if image_path:
+        try:
+            with open(image_path, "rb") as photo:
+                await message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=product_buttons,
+                )
+        except FileNotFoundError:
+            await message.reply_text(
+                caption + "\n\n⚠️ الصورة غير موجودة.",
+                reply_markup=product_buttons,
+            )
+    else:
+        await message.reply_text(caption, reply_markup=product_buttons)
+
+
+async def route_shop_text_to_message(message, context: ContextTypes.DEFAULT_TYPE, text: str):
+    product_names = [p["name"] for p in load_products()]
+
+    if text == "💊 المنتجات":
+        await show_products_menu_to_message(message)
+
+    elif text == "💊 أدوية OTC":
+        await show_otc_products_to_message(message)
+
+    elif text in product_names:
+        await show_product_details_to_message(message, text)
+
+    elif text == "🛒 السلة":
+        cart = get_cart(context)
+        await message.reply_text(cart_text(cart), reply_markup=cart_keyboard(cart))
+
+    elif text == "🔙 رجوع للمنتجات":
+        await show_products_menu_to_message(message)
+
+    elif text == "🔙 رجوع للقائمة الرئيسية":
+        await message.reply_text(
+            "🏠 القائمة الرئيسية\n\nاختر الخدمة التي تريدها:",
+            reply_markup=ReplyKeyboardMarkup(main_keyboard, resize_keyboard=True),
+        )
+
+    elif text == "💪 مكملات غذائية":
+        await message.reply_text("💪 مكملات غذائية\n\nقريبًا سنضيف المنتجات هنا.")
+
+    elif text == "✨ مستحضرات تجميل":
+        await message.reply_text("✨ مستحضرات تجميل\n\nقريبًا سنضيف المنتجات هنا.")
+
+    elif text == "👶 مستلزمات أطفال":
+        await message.reply_text("👶 مستلزمات أطفال\n\nقريبًا سنضيف المنتجات هنا.")
+
+    elif text == "🩺 أجهزة طبية":
+        await message.reply_text("🩺 أجهزة طبية\n\nقريبًا سنضيف المنتجات هنا.")
+
+    elif text == "✨ العناية بالبشرة":
+        await message.reply_text("✨ قريبًا: اكتشف روتين بشرتك حسب نوع البشرة والمشكلة.")
+
+    elif text == "💇 العناية بالشعر":
+        await message.reply_text("💇 قريبًا: تحليل مشكلة الشعر واقتراح المنتجات المناسبة.")
+
+    elif text == "👶 الأم والطفل":
+        await message.reply_text("👶 قسم الأم والطفل قيد التجهيز.")
+
+    elif text == "🩺 اسأل الصيدلي":
+        await message.reply_text("🩺 اكتب سؤالك هنا، وسيتم تحويله للصيدلي للرد عليك.")
+
+    elif text == "🎁 العروض":
+        await message.reply_text("🎁 لا توجد عروض مضافة حاليًا.")
+
+    elif text == "📦 طلباتي":
+        await message.reply_text("📦 قريبًا يمكنك متابعة طلباتك من هنا.")
+
+    elif text == "📞 تواصل معنا":
+        await message.reply_text(
+            "📞 للتواصل معنا:\n"
+            "واتساب: ضع رقمك هنا\n"
+            "تيليجرام: @ضع_اسمك_هنا"
+        )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = """
 💚 أهلاً بك في صيدليتك
@@ -191,63 +344,15 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_products_menu(update: Update):
-    await update.message.reply_text(
-        "💊 قسم المنتجات\n\nاختر القسم الذي تريده:",
-        reply_markup=ReplyKeyboardMarkup(products_keyboard, resize_keyboard=True),
-    )
+    await show_products_menu_to_message(update.message)
 
 
 async def show_otc_products(update: Update):
-    products = load_products()
-    otc_products = [p["name"] for p in products if p.get("category") == "otc"]
-
-    keyboard = [[name] for name in otc_products]
-    keyboard.append(["🔙 رجوع للمنتجات"])
-
-    await update.message.reply_text(
-        "💊 أدوية OTC\n\nاختر المنتج:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
-    )
+    await show_otc_products_to_message(update.message)
 
 
 async def show_product_details(update: Update, product_name: str):
-    product = product_by_name(product_name)
-
-    if product is None:
-        await update.message.reply_text("لم يتم العثور على المنتج.")
-        return
-
-    idx = product_index_by_name(product_name)
-
-    caption = (
-        f"💊 {product['name']}\n\n"
-        f"💰 السعر: {product['price']}\n"
-        f"📝 الاستخدام: {product['description']}"
-    )
-
-    product_buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ أضف إلى السلة", callback_data=f"cart:add:{idx}")],
-        [InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")],
-        [InlineKeyboardButton("⚡ اطلب الآن", callback_data=f"order:{product['name']}")],
-    ])
-
-    image_path = product.get("image", "")
-
-    if image_path:
-        try:
-            with open(image_path, "rb") as photo:
-                await update.message.reply_photo(
-                    photo=photo,
-                    caption=caption,
-                    reply_markup=product_buttons,
-                )
-        except FileNotFoundError:
-            await update.message.reply_text(
-                caption + "\n\n⚠️ الصورة غير موجودة.",
-                reply_markup=product_buttons,
-            )
-    else:
-        await update.message.reply_text(caption, reply_markup=product_buttons)
+    await show_product_details_to_message(update.message, product_name)
 
 
 async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -380,6 +485,43 @@ async def show_cart_from_message(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(cart_text(cart), reply_markup=cart_keyboard(cart))
 
 
+async def handle_checkout_interrupt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    action = query.data.split(":")[1]
+
+    if action == "shop":
+        pending_text = context.user_data.pop("pending_shop_text", None)
+
+        context.user_data.pop("order_step", None)
+        context.user_data.pop("order_product", None)
+        context.user_data.pop("checkout_cart", None)
+        context.user_data.pop("customer_name", None)
+        context.user_data.pop("customer_phone", None)
+        context.user_data.pop("customer_address", None)
+
+        await query.message.reply_text(
+            "🛒 تم إيقاف إتمام الطلب مؤقتًا.\n"
+            "سلتك محفوظة ويمكنك متابعة التسوق."
+        )
+
+        if pending_text:
+            await route_shop_text_to_message(query.message, context, pending_text)
+        else:
+            await show_products_menu_to_message(query.message)
+
+    elif action == "checkout":
+        step = context.user_data.get("order_step", "name")
+
+        if step == "name":
+            await query.message.reply_text("✅ نكمل إتمام الطلب.\n\nمن فضلك اكتب اسمك الكامل:")
+        elif step == "phone":
+            await query.message.reply_text("✅ نكمل إتمام الطلب.\n\n📱 اكتب رقم الجوال:")
+        elif step == "address":
+            await query.message.reply_text("✅ نكمل إتمام الطلب.\n\n📍 اكتب عنوان التوصيل:")
+
+
 async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -435,6 +577,15 @@ async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAUL
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
+
+    if context.user_data.get("order_step") and is_navigation_or_product_text(text):
+        context.user_data["pending_shop_text"] = text
+        await update.message.reply_text(
+            "⚠️ أنت الآن في مرحلة إتمام الطلب.\n\n"
+            "ماذا تريد أن تفعل؟",
+            reply_markup=checkout_interrupt_keyboard()
+        )
+        return
 
     if context.user_data.get("order_step") == "name":
         context.user_data["customer_name"] = text
@@ -628,6 +779,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CallbackQueryHandler(start_order_from_button, pattern=r"^order:"))
+    app.add_handler(CallbackQueryHandler(handle_checkout_interrupt, pattern=r"^checkout_interrupt:"))
     app.add_handler(CallbackQueryHandler(add_to_cart, pattern=r"^cart:add:"))
     app.add_handler(CallbackQueryHandler(view_cart_callback, pattern=r"^cart:view$"))
     app.add_handler(CallbackQueryHandler(update_cart_quantity, pattern=r"^cart:(inc|dec|remove):"))
