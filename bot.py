@@ -106,12 +106,18 @@ def product_search_text(product):
         product.get("name", ""),
         product.get("description", ""),
         product.get("category", ""),
+        product.get("therapeutic_class", ""),
+        product.get("active_ingredient_or_equivalent", ""),
+        product.get("brand", ""),
     ]
-    keywords = product.get("keywords", [])
-    if isinstance(keywords, list):
-        parts.extend(keywords)
-    elif isinstance(keywords, str):
-        parts.append(keywords)
+
+    for field in ["keywords", "aliases"]:
+        values = product.get(field, [])
+        if isinstance(values, list):
+            parts.extend(values)
+        elif isinstance(values, str):
+            parts.append(values)
+
     return " ".join(str(p) for p in parts if p)
 
 
@@ -159,13 +165,77 @@ def search_results_keyboard(results):
         buttons.append([
             InlineKeyboardButton(f"💊 {product.get('name')}", callback_data=f"product:view:{idx}")
         ])
-        buttons.append([
-            InlineKeyboardButton("➕ أضف للسلة", callback_data=f"cart:add:{idx}")
-        ])
+
+        row = [InlineKeyboardButton("➕ علبة", callback_data=f"cart:add:{idx}:box")]
+        if can_sell_strip(product) and product_strip_price(product) > 0:
+            row.append(InlineKeyboardButton("💊 شريط", callback_data=f"cart:add:{idx}:strip"))
+        buttons.append(row)
 
     buttons.append([InlineKeyboardButton("🔍 بحث جديد", callback_data="search:new")])
     buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
     return InlineKeyboardMarkup(buttons)
+
+
+def product_box_price(product):
+    return float(product.get("sell_price_box") or product.get("price") or 0)
+
+
+def product_strip_price(product):
+    return float(product.get("sell_price_strip") or 0)
+
+
+def product_pack_info(product):
+    pack_size = product.get("pack_size")
+    pack_unit = product.get("pack_unit", "")
+    strips_count = product.get("strips_count")
+    units_per_strip = product.get("units_per_strip")
+
+    parts = []
+    if pack_size:
+        parts.append(f"{pack_size} {pack_unit}".strip())
+    if strips_count:
+        parts.append(f"{strips_count} شريط")
+    if units_per_strip:
+        parts.append(f"{units_per_strip} وحدة/شريط")
+    return " - ".join(parts) if parts else "غير محدد"
+
+
+def product_type(product):
+    return (
+        product.get("therapeutic_class")
+        or product.get("type")
+        or product.get("description")
+        or "غير مصنف"
+    )
+
+
+def active_ingredient(product):
+    return (
+        product.get("active_ingredient_or_equivalent")
+        or product.get("active_ingredient")
+        or ""
+    )
+
+
+def can_sell_strip(product):
+    value = product.get("can_sell_strip", False)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ["true", "1", "yes", "y"]
+
+
+def unit_label(unit):
+    return "علبة" if unit == "box" else "شريط"
+
+
+def unit_price(product, unit):
+    if unit == "strip":
+        return product_strip_price(product)
+    return product_box_price(product)
+
+
+def cart_key(product_name, unit):
+    return f"{product_name}__{unit}"
 
 
 def parse_price(price_value):
@@ -209,7 +279,8 @@ def cart_text(cart):
         qty = int(item.get("qty", 1))
         price = float(item.get("price", 0))
         subtotal = qty * price
-        lines.append(f"{i}. {item['name']} × {qty} = {format_price(subtotal)}")
+        unit = item.get("unit_label", "علبة")
+        lines.append(f"{i}. {item['name']} ({unit}) × {qty} = {format_price(subtotal)}")
 
     lines.append("\n━━━━━━━━━━━━")
     lines.append(f"💰 الإجمالي: {format_price(cart_total(cart))}")
@@ -219,14 +290,18 @@ def cart_text(cart):
 def cart_keyboard(cart):
     buttons = []
 
-    for product_name in cart.keys():
+    for item in cart.values():
+        product_name = item.get("name")
+        unit = item.get("unit", "box")
         idx = product_index_by_name(product_name)
         if idx == -1:
             continue
+
+        label = f"{product_name} ({unit_label(unit)})"
         buttons.append([
-            InlineKeyboardButton(f"➖ {product_name}", callback_data=f"cart:dec:{idx}"),
-            InlineKeyboardButton("➕", callback_data=f"cart:inc:{idx}"),
-            InlineKeyboardButton("🗑️", callback_data=f"cart:remove:{idx}"),
+            InlineKeyboardButton(f"➖ {label}", callback_data=f"cart:dec:{idx}:{unit}"),
+            InlineKeyboardButton("➕", callback_data=f"cart:inc:{idx}:{unit}"),
+            InlineKeyboardButton("🗑️", callback_data=f"cart:remove:{idx}:{unit}"),
         ])
 
     buttons.append([InlineKeyboardButton("➕ متابعة التسوق", callback_data="cart:continue")])
@@ -297,17 +372,44 @@ async def show_product_details_to_message(message, product_name: str):
 
     idx = product_index_by_name(product_name)
 
+    box_price = product_box_price(product)
+    strip_price = product_strip_price(product)
+    pack_info = product_pack_info(product)
+    therapeutic = product_type(product)
+    active = active_ingredient(product)
+
     caption = (
         f"💊 {product['name']}\n\n"
-        f"💰 السعر: {product['price']}\n"
-        f"📝 الاستخدام: {product['description']}"
+        f"💰 سعر العلبة: {format_price(box_price)}\n"
     )
 
-    product_buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ أضف إلى السلة", callback_data=f"cart:add:{idx}")],
-        [InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")],
-        [InlineKeyboardButton("⚡ اطلب الآن", callback_data=f"order:{product['name']}")],
-    ])
+    if can_sell_strip(product) and strip_price > 0:
+        caption += f"💊 سعر الشريط: {format_price(strip_price)}\n"
+
+    caption += (
+        f"📦 العبوة: {pack_info}\n"
+        f"🩺 التصنيف: {therapeutic}\n"
+    )
+
+    if active:
+        caption += f"🧪 المادة الفعالة/المكافئ: {active}\n"
+
+    if product.get("needs_review"):
+        caption += "\n⚠️ تفاصيل الشرائط تقديرية وتحتاج مراجعة من الصيدلية."
+
+    product_button_rows = [
+        [InlineKeyboardButton("🛒 إضافة علبة للسلة", callback_data=f"cart:add:{idx}:box")]
+    ]
+
+    if can_sell_strip(product) and strip_price > 0:
+        product_button_rows.append([
+            InlineKeyboardButton("💊 إضافة شريط للسلة", callback_data=f"cart:add:{idx}:strip")
+        ])
+
+    product_button_rows.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
+    product_button_rows.append([InlineKeyboardButton("⚡ اطلب علبة الآن", callback_data=f"order:{product['name']}")])
+
+    product_buttons = InlineKeyboardMarkup(product_button_rows)
 
     image_path = product.get("image", "")
 
@@ -517,30 +619,49 @@ async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
+def add_product_to_cart(context: ContextTypes.DEFAULT_TYPE, product, unit="box"):
+    cart = get_cart(context)
+    product_name = product["name"]
+    price = unit_price(product, unit)
+    key = cart_key(product_name, unit)
+
+    if key not in cart:
+        cart[key] = {
+            "name": product_name,
+            "unit": unit,
+            "unit_label": unit_label(unit),
+            "qty": 0,
+            "price": price,
+            "price_text": format_price(price),
+        }
+
+    cart[key]["qty"] += 1
+    return cart
+
+
 async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    idx = int(query.data.split(":")[-1])
+    parts = query.data.split(":")
+    idx = int(parts[2])
+    unit = parts[3] if len(parts) > 3 else "box"
+
     product = product_by_index(idx)
     if product is None:
         await query.message.reply_text("❌ المنتج غير موجود.")
         return
 
-    cart = get_cart(context)
+    if unit == "strip" and not can_sell_strip(product):
+        await query.message.reply_text("❌ هذا المنتج غير متاح للبيع بالشريط.")
+        return
+
+    cart = add_product_to_cart(context, product, unit)
     product_name = product["name"]
-    if product_name not in cart:
-        cart[product_name] = {
-            "name": product_name,
-            "qty": 0,
-            "price": parse_price(product.get("price", 0)),
-            "price_text": str(product.get("price", "")),
-        }
-    cart[product_name]["qty"] += 1
 
     await query.message.reply_text(
-        f"✅ تمت إضافة {product_name} إلى السلة.\n\n"
-        f"عدد المنتجات في السلة: {cart_count(cart)}",
+        f"✅ تمت إضافة {unit_label(unit)} من {product_name} إلى السلة.\n\n"
+        f"عدد الوحدات في السلة: {cart_count(cart)}",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")],
             [InlineKeyboardButton("➕ متابعة التسوق", callback_data="cart:continue")],
@@ -560,27 +681,31 @@ async def update_cart_quantity(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    _, action, idx_text = query.data.split(":")
+    parts = query.data.split(":")
+    _, action, idx_text = parts[:3]
+    unit = parts[3] if len(parts) > 3 else "box"
+
     product = product_by_index(int(idx_text))
     if product is None:
         await query.message.reply_text("❌ المنتج غير موجود.")
         return
 
     product_name = product["name"]
+    key = cart_key(product_name, unit)
     cart = get_cart(context)
 
-    if product_name not in cart:
+    if key not in cart:
         await query.message.reply_text("❌ المنتج غير موجود في السلة.")
         return
 
     if action == "inc":
-        cart[product_name]["qty"] += 1
+        cart[key]["qty"] += 1
     elif action == "dec":
-        cart[product_name]["qty"] -= 1
-        if cart[product_name]["qty"] <= 0:
-            del cart[product_name]
+        cart[key]["qty"] -= 1
+        if cart[key]["qty"] <= 0:
+            del cart[key]
     elif action == "remove":
-        del cart[product_name]
+        del cart[key]
 
     await query.message.reply_text(cart_text(cart), reply_markup=cart_keyboard(cart))
 
@@ -766,13 +891,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 qty = int(item.get("qty", 1))
                 price = float(item.get("price", 0))
                 subtotal = qty * price
+                item_unit = item.get("unit", "box")
+                item_unit_label = item.get("unit_label", unit_label(item_unit))
                 items.append({
                     "name": item["name"],
+                    "unit": item_unit,
+                    "unit_label": item_unit_label,
                     "qty": qty,
                     "price": price,
                     "subtotal": subtotal,
                 })
-                items_text_lines.append(f"• {item['name']} × {qty} = {format_price(subtotal)}")
+                items_text_lines.append(
+                    f"• {item['name']} ({item_unit_label}) × {qty} = {format_price(subtotal)}"
+                )
 
             total = cart_total(cart)
             product_name = "طلب متعدد المنتجات"
@@ -780,10 +911,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             product_name = context.user_data.get("order_product")
             product = product_by_name(product_name) or {}
-            price = parse_price(product.get("price", 0))
-            items = [{"name": product_name, "qty": 1, "price": price, "subtotal": price}]
+            price = product_box_price(product)
+            items = [{
+                "name": product_name,
+                "unit": "box",
+                "unit_label": "علبة",
+                "qty": 1,
+                "price": price,
+                "subtotal": price
+            }]
             total = price
-            items_text = f"• {product_name} × 1 = {format_price(price)}"
+            items_text = f"• {product_name} (علبة) × 1 = {format_price(price)}"
 
         order = {
             "id": order_id,
