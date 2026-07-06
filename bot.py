@@ -127,34 +127,49 @@ def search_products(query: str, limit: int = 8):
     if not query_norm:
         return []
 
-    products = load_products()
+    try:
+        products = load_products()
+    except Exception as e:
+        print(f"PRODUCT_LOAD_ERROR: {e}")
+        return []
+
     scored = []
 
     for idx, product in enumerate(products):
-        combined = normalize_text(product_search_text(product))
-        name_norm = normalize_text(product.get("name", ""))
+        try:
+            if not isinstance(product, dict):
+                continue
 
-        score = 0.0
+            combined = normalize_text(product_search_text(product))
+            name_norm = normalize_text(product.get("name", ""))
 
-        # Direct match in name or keywords/description
-        if query_norm in name_norm:
-            score = max(score, 1.0)
-        elif query_norm in combined:
-            score = max(score, 0.9)
+            if not name_norm:
+                continue
 
-        # Word-level fuzzy matching
-        words = combined.split()
-        if words:
-            best_word_score = max((difflib.SequenceMatcher(None, query_norm, word).ratio() for word in words), default=0)
-            score = max(score, best_word_score)
+            score = 0.0
 
-        # Full-name fuzzy matching
-        name_score = difflib.SequenceMatcher(None, query_norm, name_norm).ratio()
-        score = max(score, name_score)
+            if query_norm in name_norm:
+                score = max(score, 1.0)
+            elif query_norm in combined:
+                score = max(score, 0.9)
 
-        # Keep reasonably close matches
-        if score >= 0.45:
-            scored.append((score, idx, product))
+            words = combined.split()
+            if words:
+                best_word_score = max(
+                    (difflib.SequenceMatcher(None, query_norm, word).ratio() for word in words),
+                    default=0
+                )
+                score = max(score, best_word_score)
+
+            name_score = difflib.SequenceMatcher(None, query_norm, name_norm).ratio()
+            score = max(score, name_score)
+
+            if score >= 0.40:
+                scored.append((score, idx, product))
+
+        except Exception as e:
+            print(f"SEARCH_PRODUCT_ERROR index={idx}: {e}")
+            continue
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return scored[:limit]
@@ -163,14 +178,14 @@ def search_products(query: str, limit: int = 8):
 def search_results_keyboard(results):
     buttons = []
     for score, idx, product in results:
-        buttons.append([
-            InlineKeyboardButton(f"💊 {product.get('name')}", callback_data=f"product:view:{idx}")
-        ])
-
-        row = [InlineKeyboardButton("➕ علبة", callback_data=f"cart:add:{idx}:box")]
-        if can_sell_strip(product) and product_strip_price(product) > 0:
-            row.append(InlineKeyboardButton("💊 شريط", callback_data=f"cart:add:{idx}:strip"))
-        buttons.append(row)
+        try:
+            name = product.get("name", "منتج")
+            buttons.append([
+                InlineKeyboardButton(f"💊 {name}", callback_data=f"product:view:{idx}")
+            ])
+        except Exception as e:
+            print(f"SEARCH_BUTTON_ERROR index={idx}: {e}")
+            continue
 
     buttons.append([InlineKeyboardButton("🔍 بحث جديد", callback_data="search:new")])
     buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
@@ -439,20 +454,13 @@ async def show_products_menu_to_message(message):
 
 
 async def show_otc_products_to_message(message):
-    products = load_products()
-
-    otc_products = [p for p in products if is_otc_product(p)]
-
-    # إذا لم تكن التصنيفات مضبوطة في products.json، اعرض أول 30 منتج بدل ما يتوقف البوت
-    if not otc_products:
-        otc_products = products[:30]
-
     await message.reply_text(
-        "💊 أدوية OTC\n\n"
-        "اختر المنتج من القائمة أو استخدم زر 🔍 البحث عن منتج للوصول لأي صنف بسرعة.\n\n"
-        f"📦 المعروض الآن: {min(len(otc_products), 30)} منتج",
+        "💊 قسم أدوية OTC\n\n"
+        "لأن عدد الأصناف كبير، استخدم البحث للوصول للمنتج بسرعة.\n\n"
+        "اكتب اسم المنتج أو جزءًا منه الآن:\n"
+        "مثال: Panadol / Brufen / Abimol / فيتامين",
         reply_markup=ReplyKeyboardMarkup(
-            product_list_keyboard(otc_products, max_items=30),
+            [["🔍 البحث عن منتج"], ["🔙 رجوع للمنتجات"]],
             resize_keyboard=True
         ),
     )
@@ -954,7 +962,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get("search_step"):
-        if is_navigation_or_product_text(text):
+        if text in ["💊 المنتجات", "🔙 رجوع للمنتجات", "🔙 رجوع للقائمة الرئيسية", "🛒 السلة"]:
             context.user_data.pop("search_step", None)
         else:
             context.user_data.pop("search_step", None)
