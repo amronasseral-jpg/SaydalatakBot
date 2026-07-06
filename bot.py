@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import difflib
 from datetime import datetime
 
 from telegram import (
@@ -24,11 +25,11 @@ ADMIN_CHAT_ID = 1027957590
 ORDERS_FILE = "orders.json"
 
 main_keyboard = [
-    ["💊 المنتجات", "✨ العناية بالبشرة"],
-    ["💇 العناية بالشعر", "👶 الأم والطفل"],
-    ["🩺 اسأل الصيدلي", "🎁 العروض"],
-    ["🛒 السلة", "📦 طلباتي"],
-    ["📞 تواصل معنا"],
+    ["💊 المنتجات", "🔍 البحث عن منتج"],
+    ["✨ العناية بالبشرة", "💇 العناية بالشعر"],
+    ["👶 الأم والطفل", "🩺 اسأل الصيدلي"],
+    ["🎁 العروض", "🛒 السلة"],
+    ["📦 طلباتي", "📞 تواصل معنا"],
 ]
 
 products_keyboard = [
@@ -79,6 +80,92 @@ def product_index_by_name(product_name: str):
         if product.get("name") == product_name:
             return idx
     return -1
+
+
+def normalize_text(text: str):
+    text = str(text).strip().lower()
+    replacements = {
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ى": "ي",
+        "ة": "ه",
+        "ؤ": "و",
+        "ئ": "ي",
+        "ـ": "",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = re.sub(r"[^\w\s\u0600-\u06FF]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def product_search_text(product):
+    parts = [
+        product.get("name", ""),
+        product.get("description", ""),
+        product.get("category", ""),
+    ]
+    keywords = product.get("keywords", [])
+    if isinstance(keywords, list):
+        parts.extend(keywords)
+    elif isinstance(keywords, str):
+        parts.append(keywords)
+    return " ".join(str(p) for p in parts if p)
+
+
+def search_products(query: str, limit: int = 8):
+    query_norm = normalize_text(query)
+    if not query_norm:
+        return []
+
+    products = load_products()
+    scored = []
+
+    for idx, product in enumerate(products):
+        combined = normalize_text(product_search_text(product))
+        name_norm = normalize_text(product.get("name", ""))
+
+        score = 0.0
+
+        # Direct match in name or keywords/description
+        if query_norm in name_norm:
+            score = max(score, 1.0)
+        elif query_norm in combined:
+            score = max(score, 0.9)
+
+        # Word-level fuzzy matching
+        words = combined.split()
+        if words:
+            best_word_score = max((difflib.SequenceMatcher(None, query_norm, word).ratio() for word in words), default=0)
+            score = max(score, best_word_score)
+
+        # Full-name fuzzy matching
+        name_score = difflib.SequenceMatcher(None, query_norm, name_norm).ratio()
+        score = max(score, name_score)
+
+        # Keep reasonably close matches
+        if score >= 0.45:
+            scored.append((score, idx, product))
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[:limit]
+
+
+def search_results_keyboard(results):
+    buttons = []
+    for score, idx, product in results:
+        buttons.append([
+            InlineKeyboardButton(f"💊 {product.get('name')}", callback_data=f"product:view:{idx}")
+        ])
+        buttons.append([
+            InlineKeyboardButton("➕ أضف للسلة", callback_data=f"cart:add:{idx}")
+        ])
+
+    buttons.append([InlineKeyboardButton("🔍 بحث جديد", callback_data="search:new")])
+    buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
+    return InlineKeyboardMarkup(buttons)
 
 
 def parse_price(price_value):
@@ -160,6 +247,7 @@ def checkout_interrupt_keyboard():
 def is_navigation_or_product_text(text: str):
     navigation_buttons = {
         "💊 المنتجات",
+        "🔍 البحث عن منتج",
         "💊 أدوية OTC",
         "💪 مكملات غذائية",
         "✨ مستحضرات تجميل",
@@ -251,6 +339,13 @@ async def route_shop_text_to_message(message, context: ContextTypes.DEFAULT_TYPE
 
     elif text in product_names:
         await show_product_details_to_message(message, text)
+
+    elif text == "🔍 البحث عن منتج":
+        context.user_data["search_step"] = True
+        await message.reply_text(
+            "🔍 اكتب اسم المنتج أو جزءًا منه:\n\n"
+            "مثال: Panadol / Brufen / فيتامين / صداع"
+        )
 
     elif text == "🛒 السلة":
         cart = get_cart(context)
@@ -353,6 +448,51 @@ async def show_otc_products(update: Update):
 
 async def show_product_details(update: Update, product_name: str):
     await show_product_details_to_message(update.message, product_name)
+
+
+async def show_search_results_message(message, context: ContextTypes.DEFAULT_TYPE, query: str):
+    results = search_products(query)
+
+    if not results:
+        await message.reply_text(
+            "❌ لم أجد منتجًا مطابقًا.\n\n"
+            "جرّب كتابة جزء من الاسم أو اسمًا آخر.\n"
+            "مثال: panadol / brufen / فيتامين"
+        )
+        return
+
+    lines = [f"🔎 نتائج البحث عن: {query}\n"]
+    for i, (score, idx, product) in enumerate(results, start=1):
+        lines.append(f"{i}. 💊 {product.get('name')}")
+
+    await message.reply_text(
+        "\n".join(lines),
+        reply_markup=search_results_keyboard(results),
+    )
+
+
+async def start_search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data["search_step"] = True
+    await query.message.reply_text(
+        "🔍 اكتب اسم المنتج أو جزءًا منه:\n\n"
+        "مثال: Panadol / Brufen / فيتامين / صداع"
+    )
+
+
+async def show_product_from_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    idx = int(query.data.split(":")[-1])
+    product = product_by_index(idx)
+
+    if product is None:
+        await query.message.reply_text("❌ المنتج غير موجود.")
+        return
+
+    await show_product_details_to_message(query.message, product.get("name"))
 
 
 async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -578,6 +718,14 @@ async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAUL
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
+    if context.user_data.get("search_step"):
+        if is_navigation_or_product_text(text):
+            context.user_data.pop("search_step", None)
+        else:
+            context.user_data.pop("search_step", None)
+            await show_search_results_message(update.message, context, text)
+            return
+
     if context.user_data.get("order_step") and is_navigation_or_product_text(text):
         context.user_data["pending_shop_text"] = text
         await update.message.reply_text(
@@ -699,6 +847,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "💊 المنتجات":
         await show_products_menu(update)
 
+    elif text == "🔍 البحث عن منتج":
+        context.user_data["search_step"] = True
+        await update.message.reply_text(
+            "🔍 اكتب اسم المنتج أو جزءًا منه:\n\n"
+            "مثال: Panadol / Brufen / فيتامين / صداع"
+        )
+
     elif text == "💊 أدوية OTC":
         await show_otc_products(update)
 
@@ -778,6 +933,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CallbackQueryHandler(start_search_callback, pattern=r"^search:new$"))
+    app.add_handler(CallbackQueryHandler(show_product_from_callback, pattern=r"^product:view:"))
     app.add_handler(CallbackQueryHandler(start_order_from_button, pattern=r"^order:"))
     app.add_handler(CallbackQueryHandler(handle_checkout_interrupt, pattern=r"^checkout_interrupt:"))
     app.add_handler(CallbackQueryHandler(add_to_cart, pattern=r"^cart:add:"))
