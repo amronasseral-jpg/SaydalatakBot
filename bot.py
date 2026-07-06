@@ -2,7 +2,6 @@ import json
 import os
 import re
 import difflib
-import traceback
 from datetime import datetime
 
 from telegram import (
@@ -127,49 +126,34 @@ def search_products(query: str, limit: int = 8):
     if not query_norm:
         return []
 
-    try:
-        products = load_products()
-    except Exception as e:
-        print(f"PRODUCT_LOAD_ERROR: {e}")
-        return []
-
+    products = load_products()
     scored = []
 
     for idx, product in enumerate(products):
-        try:
-            if not isinstance(product, dict):
-                continue
+        combined = normalize_text(product_search_text(product))
+        name_norm = normalize_text(product.get("name", ""))
 
-            combined = normalize_text(product_search_text(product))
-            name_norm = normalize_text(product.get("name", ""))
+        score = 0.0
 
-            if not name_norm:
-                continue
+        # Direct match in name or keywords/description
+        if query_norm in name_norm:
+            score = max(score, 1.0)
+        elif query_norm in combined:
+            score = max(score, 0.9)
 
-            score = 0.0
+        # Word-level fuzzy matching
+        words = combined.split()
+        if words:
+            best_word_score = max((difflib.SequenceMatcher(None, query_norm, word).ratio() for word in words), default=0)
+            score = max(score, best_word_score)
 
-            if query_norm in name_norm:
-                score = max(score, 1.0)
-            elif query_norm in combined:
-                score = max(score, 0.9)
+        # Full-name fuzzy matching
+        name_score = difflib.SequenceMatcher(None, query_norm, name_norm).ratio()
+        score = max(score, name_score)
 
-            words = combined.split()
-            if words:
-                best_word_score = max(
-                    (difflib.SequenceMatcher(None, query_norm, word).ratio() for word in words),
-                    default=0
-                )
-                score = max(score, best_word_score)
-
-            name_score = difflib.SequenceMatcher(None, query_norm, name_norm).ratio()
-            score = max(score, name_score)
-
-            if score >= 0.40:
-                scored.append((score, idx, product))
-
-        except Exception as e:
-            print(f"SEARCH_PRODUCT_ERROR index={idx}: {e}")
-            continue
+        # Keep reasonably close matches
+        if score >= 0.45:
+            scored.append((score, idx, product))
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return scored[:limit]
@@ -178,41 +162,26 @@ def search_products(query: str, limit: int = 8):
 def search_results_keyboard(results):
     buttons = []
     for score, idx, product in results:
-        try:
-            name = product.get("name", "منتج")
-            buttons.append([
-                InlineKeyboardButton(f"💊 {name}", callback_data=f"product:view:{idx}")
-            ])
-        except Exception as e:
-            print(f"SEARCH_BUTTON_ERROR index={idx}: {e}")
-            continue
+        buttons.append([
+            InlineKeyboardButton(f"💊 {product.get('name')}", callback_data=f"product:view:{idx}")
+        ])
+
+        row = [InlineKeyboardButton("➕ علبة", callback_data=f"cart:add:{idx}:box")]
+        if can_sell_strip(product) and product_strip_price(product) > 0:
+            row.append(InlineKeyboardButton("💊 شريط", callback_data=f"cart:add:{idx}:strip"))
+        buttons.append(row)
 
     buttons.append([InlineKeyboardButton("🔍 بحث جديد", callback_data="search:new")])
     buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
     return InlineKeyboardMarkup(buttons)
 
 
-def to_float(value, default=0.0):
-    try:
-        if value is None:
-            return default
-        if isinstance(value, (int, float)):
-            return float(value)
-        text = str(value).strip()
-        if not text or text.lower() in ["#n/a", "nan", "none", "null"]:
-            return default
-        match = re.search(r"\d+(?:\.\d+)?", text)
-        return float(match.group()) if match else default
-    except Exception:
-        return default
-
-
 def product_box_price(product):
-    return to_float(product.get("sell_price_box") or product.get("price") or product.get("sell_price") or 0)
+    return float(product.get("sell_price_box") or product.get("price") or 0)
 
 
 def product_strip_price(product):
-    return to_float(product.get("sell_price_strip") or 0)
+    return float(product.get("sell_price_strip") or 0)
 
 
 def product_pack_info(product):
@@ -350,54 +319,7 @@ def checkout_interrupt_keyboard():
     ])
 
 
-def clean_button_text(text: str):
-    text = str(text).strip()
-    # Remove common emojis/symbols used in buttons so RTL/LTR order doesn't matter
-    for ch in ["💊", "🔍", "✨", "💇", "👶", "🩺", "🎁", "🛒", "📦", "📞", "💪", "🔙"]:
-        text = text.replace(ch, "")
-    text = text.replace("الأ", "الا")
-    text = text.replace("إ", "ا").replace("أ", "ا").replace("آ", "ا")
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def canonical_text(text: str):
-    original = str(text).strip()
-    cleaned = clean_button_text(original)
-
-    mapping = {
-        "المنتجات": "💊 المنتجات",
-        "بحث عن منتج": "🔍 البحث عن منتج",
-        "البحث عن منتج": "🔍 البحث عن منتج",
-        "السلة": "🛒 السلة",
-        "طلباتي": "📦 طلباتي",
-        "تواصل معنا": "📞 تواصل معنا",
-        "العروض": "🎁 العروض",
-        "اسال الصيدلي": "🩺 اسأل الصيدلي",
-        "الام والطفل": "👶 الأم والطفل",
-        "العنايه بالشعر": "💇 العناية بالشعر",
-        "العنايه بالبشره": "✨ العناية بالبشرة",
-        "ادويه OTC": "💊 أدوية OTC",
-        "ادوية OTC": "💊 أدوية OTC",
-        "مكملات غذائيه": "💪 مكملات غذائية",
-        "مستحضرات تجميل": "✨ مستحضرات تجميل",
-        "مستلزمات اطفال": "👶 مستلزمات أطفال",
-        "اجهزه طبيه": "🩺 أجهزة طبية",
-        "اجهزة طبية": "🩺 أجهزة طبية",
-        "رجوع للمنتجات": "🔙 رجوع للمنتجات",
-        "رجوع للقائمه الرئيسيه": "🔙 رجوع للقائمة الرئيسية",
-        "رجوع للقائمة الرئيسية": "🔙 رجوع للقائمة الرئيسية",
-    }
-
-    return mapping.get(cleaned, original)
-
-
-def is_same_button(text: str, label: str):
-    return canonical_text(text) == label
-
-
 def is_navigation_or_product_text(text: str):
-    text = canonical_text(text)
     navigation_buttons = {
         "💊 المنتجات",
         "🔍 البحث عن منتج",
@@ -421,31 +343,6 @@ def is_navigation_or_product_text(text: str):
     return text in navigation_buttons or text in product_names
 
 
-def is_otc_product(product):
-    category = normalize_text(product.get("category", ""))
-    therapeutic = normalize_text(product.get("therapeutic_class", ""))
-    name = normalize_text(product.get("name", ""))
-    return (
-        category in ["otc", "ادويه otc", "ادوية otc"]
-        or "otc" in category
-        or "مسكن" in therapeutic
-        or "خافض" in therapeutic
-        or "معده" in therapeutic
-        or "حساسيه" in therapeutic
-    )
-
-
-def product_list_keyboard(products, max_items=30):
-    keyboard = []
-    for product in products[:max_items]:
-        name = product.get("name")
-        if name:
-            keyboard.append([name])
-    keyboard.append(["🔍 البحث عن منتج"])
-    keyboard.append(["🔙 رجوع للمنتجات"])
-    return keyboard
-
-
 async def show_products_menu_to_message(message):
     await message.reply_text(
         "💊 قسم المنتجات\n\nاختر القسم الذي تريده:",
@@ -454,15 +351,15 @@ async def show_products_menu_to_message(message):
 
 
 async def show_otc_products_to_message(message):
+    products = load_products()
+    otc_products = [p["name"] for p in products if p.get("category") == "otc"]
+
+    keyboard = [[name] for name in otc_products]
+    keyboard.append(["🔙 رجوع للمنتجات"])
+
     await message.reply_text(
-        "💊 قسم أدوية OTC\n\n"
-        "لأن عدد الأصناف كبير، استخدم البحث للوصول للمنتج بسرعة.\n\n"
-        "اكتب اسم المنتج أو جزءًا منه الآن:\n"
-        "مثال: Panadol / Brufen / Abimol / فيتامين",
-        reply_markup=ReplyKeyboardMarkup(
-            [["🔍 البحث عن منتج"], ["🔙 رجوع للمنتجات"]],
-            resize_keyboard=True
-        ),
+        "💊 أدوية OTC\n\nاختر المنتج:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True),
     )
 
 
@@ -534,7 +431,6 @@ async def show_product_details_to_message(message, product_name: str):
 
 
 async def route_shop_text_to_message(message, context: ContextTypes.DEFAULT_TYPE, text: str):
-    text = canonical_text(text)
     product_names = [p["name"] for p in load_products()]
 
     if text == "💊 المنتجات":
@@ -945,24 +841,10 @@ async def handle_admin_order_action(update: Update, context: ContextTypes.DEFAUL
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw_text = update.message.text.strip()
-    text = canonical_text(raw_text)
-    print(f"USER_TEXT_RAW={repr(raw_text)} | CANONICAL={repr(text)}")
-
-    if text == "💊 المنتجات" and not context.user_data.get("order_step"):
-        await show_products_menu(update)
-        return
-
-    if text == "🔍 البحث عن منتج" and not context.user_data.get("order_step"):
-        context.user_data["search_step"] = True
-        await update.message.reply_text(
-            "🔍 اكتب اسم المنتج أو جزءًا منه:\n\n"
-            "مثال: Panadol / Brufen / فيتامين / صداع"
-        )
-        return
+    text = update.message.text.strip()
 
     if context.user_data.get("search_step"):
-        if text in ["💊 المنتجات", "🔙 رجوع للمنتجات", "🔙 رجوع للقائمة الرئيسية", "🛒 السلة"]:
+        if is_navigation_or_product_text(text):
             context.user_data.pop("search_step", None)
         else:
             context.user_data.pop("search_step", None)
@@ -1182,11 +1064,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("اكتب /start للعودة للقائمة الرئيسية.")
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Unhandled error: {context.error}")
-    traceback.print_exception(type(context.error), context.error, context.error.__traceback__)
-
-
 def main():
     print("Starting bot...")
 
@@ -1206,7 +1083,6 @@ def main():
     app.add_handler(CallbackQueryHandler(checkout_cart, pattern=r"^cart:checkout$"))
     app.add_handler(CallbackQueryHandler(handle_admin_order_action, pattern=r"^admin:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_error_handler(error_handler)
 
     print("Bot is running...")
     app.run_polling()
