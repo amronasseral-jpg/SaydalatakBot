@@ -3,7 +3,15 @@ import os
 import re
 import difflib
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# Google Sheets اختياري: إذا لم يكن مضبوطًا يرجع البوت إلى products.json
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except Exception:
+    gspread = None
+    Credentials = None
 
 from telegram import (
     Update,
@@ -23,6 +31,23 @@ from telegram.ext import (
 from config import TOKEN, ADMIN_CHAT_ID
 ORDERS_FILE = "orders.json"
 
+# ===== Google Sheets Settings =====
+# ضع هذه القيم في Railway Variables:
+# GOOGLE_SHEET_ID = رقم/معرف ملف Google Sheet
+# GOOGLE_PRODUCTS_WORKSHEET = Products
+# GOOGLE_ORDERS_WORKSHEET = Orders
+# GOOGLE_SERVICE_ACCOUNT_JSON = محتوى ملف service account بصيغة JSON
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
+GOOGLE_PRODUCTS_WORKSHEET = os.getenv("GOOGLE_PRODUCTS_WORKSHEET", "Products").strip()
+GOOGLE_ORDERS_WORKSHEET = os.getenv("GOOGLE_ORDERS_WORKSHEET", "Orders").strip()
+PRODUCTS_CACHE_TTL_SECONDS = int(os.getenv("PRODUCTS_CACHE_TTL_SECONDS", "60"))
+
+_products_cache = {
+    "loaded_at": None,
+    "data": [],
+}
+
+
 main_keyboard = [
     ["💊 المنتجات", "🔍 البحث عن منتج"],
     ["✨ العناية بالبشرة", "💇 العناية بالشعر"],
@@ -39,246 +64,190 @@ products_keyboard = [
 ]
 
 
-# تصنيفات OTC + منتجات مشهورة من كشف المنتجات
-# ملاحظة: نستخدم أسماء المنتجات كما تظهر في products.json/كشف المنتجات حتى تظهر النتائج مباشرة
-OTC_CATEGORIES = {
-    "pain": {
-        "button": "💊 مسكنات وخافض حرارة",
-        "title": "مسكنات وخافض حرارة",
-        "popular_names": [
-            "Panadol Extra 24Tab",
-            "Panadol Advance 500mg 48tab",
-            "Abimol 500mg 20tab (Paracetamol)",
-            "Brufen 400mg 30tab",
-            "Brufen 600mg 30tab",
-            "Cetal 500mg 20tab (Paracetamol)",
-            "Cataflam 20Tab. egy",
-            "Catafast 50mg 9Sach.",
-            "Paramol 1000mg 20tab (Paracetamol)",
-            "Norgesic 20Tab",
-        ],
-        "search_hint": "بنادول / بروفين / أبيمول / كاتافلام / مسكن / صداع / حرارة",
-    },
-    "stomach": {
-        "button": "🔥 معدة وحموضة",
-        "title": "أدوية المعدة والحموضة",
-        "popular_names": [
-            "Controloc 40mg 14tab",
-            "Pantoloc 40mg 14Tab (Pantover)",
-            "Pantoloc 20mg 14Tab (Pantover)",
-            "Nexium 40mg 28Cap",
-            "Nexicure 40mg 20Tab(Nexium)",
-            "Omez 20mg 14Cap",
-            "Omez 40mg 20 cap",
-            "Rennie /24tab",
-            "Mucogel Susp 125ml",
-            "Eucarbon /30Tab egy",
-            "Buscopan 20tab (Scobutyl)",
-            "Spasmodigestin 30 Tab",
-        ],
-        "search_hint": "كونترولوك / نكسيوم / أوميز / ريني / حموضة / مغص / قولون",
-    },
-    "allergy": {
-        "button": "🤧 حساسية ورشح",
-        "title": "أدوية الحساسية والرشح",
-        "popular_names": [
-            "Congestal 20 tab",
-            "Congestal syrup 120ml",
-            "Coldatrexy Cold & Flu 30Tab",
-            "Conta-Flu 20Tab",
-            "Flurest N 20Tab",
-            "Claritine 10mg 20 tab (lorax)",
-            "Claritine syrup 100ml (lorax)",
-            "Telfast 120mg 20 tab egy",
-            "Telfast 180mg 20 tab",
-            "Zyrtec 10mg 20Tab (Histazin)",
-            "Histazine_10mg 20Tab",
-            "Desa 5mg 20tab (Lorias)",
-        ],
-        "search_hint": "كونجستال / فلورست / تلفاست / كلاريتين / زيرتك / حساسية / رشح",
-    },
-    "cough": {
-        "button": "😷 كحة وبلغم",
-        "title": "أدوية الكحة والبلغم",
-        "popular_names": [
-            "Bisolvon Syrup 115ml (Mucocare)",
-            "Bronchicum Elixir 100ml",
-            "Bronchicum 20Lozenges Tab",
-            "Mucobrave (Acetylcistein) 600mg Effer 10sach.",
-            "Flubronk 600mg 10eff. tab (Reolin)",
-            "Oplex-N syrup 125ml",
-            "Tussivan-N 125ml Syr",
-            "Ivypront syrup 120 ml",
-            "Ventocough syrup 125 ml",
-            "All-vent syrup 125ml",
-        ],
-        "search_hint": "كحة / بلغم / بيسلفون / برونشيكم / أوبلكس / ميوكوبراف",
-    },
-    "gi": {
-        "button": "🚽 إسهال وإمساك",
-        "title": "أدوية الإسهال والإمساك",
-        "popular_names": [
-            "Antinal 200mg 24cap",
-            "Antinal susp 60ml",
-            "Flagyl 500mg 20Tab Egy.",
-            "Flagyl 125mg /susp 100ml",
-            "Streptoquin 20Tab Egy",
-            "Duphalac syrup 200ml (Avilac)",
-            "Senna Lax 30tab (Laxative)",
-            "Picolax 0.75% oral drops 15ml",
-            "Glycerin adult 5 supp",
-            "Oral Rehydration Salts BP 20.5Gram. 1Sachet",
-        ],
-        "search_hint": "أنتينال / فلاجيل / ستربتوكين / دوفلاك / إمساك / إسهال",
-    },
-    "skin": {
-        "button": "🧴 جلدية وحروق",
-        "title": "أدوية الجلدية والحروق",
-        "popular_names": [
-            "Fucicort Cream 15gm Egy.",
-            "Fucidin Cream 15gm Egy.",
-            "Daktarin 2% cream 15gm",
-            "Lamifen 1% Cream 15g (Tinasil)",
-            "Bepanthen Skin moisturising cream 30g",
-            "Panthenol 2% Cream 50g (El-Nile)",
-            "Silvirburn 1% Cream 30g",
-            "Contractubex 20gm Cr.",
-            "Dermovate Cream 25g Egy.",
-            "Elica-M 30g Cream",
-        ],
-        "search_hint": "فيوسيكورت / فيوسيدين / دكتارين / لاميفين / بانثينول / حروق / فطريات",
-    },
-    "muscle": {
-        "button": "🦴 عضلات ومفاصل",
-        "title": "أدوية العضلات والمفاصل",
-        "popular_names": [
-            "Relaxon 30cap",
-            "Myofen 30cap",
-            "Dantrelax Compound 30cap",
-            "Flexilax 30tab (DIMRA)",
-            "Norflex 100mg 20 Tab",
-            "Norgesic 20Tab",
-            "Voltaren 1% emulge 25 gm",
-            "Fast freeze gel 100g",
-            "Moov Massage cream 40g",
-            "Lornoxicam 8mg 30 tab",
-        ],
-        "search_hint": "ريلاكسون / ميوفين / نورفلكس / نورجيسك / فولتارين / مرخي عضلات",
-    },
-    "vitamins": {
-        "button": "💪 فيتامينات ومكملات",
-        "title": "الفيتامينات والمكملات",
-        "popular_names": [
-            "Davalindi 5000 IU 30Tab (Vit. D3)",
-            "Davalindi 10000 IU 30Tab (Vit. D3)",
-            "Cal-Mag D 30 Cap",
-            "Calcium D3F 30 tab",
-            "C Zinc 30Cap",
-            "Neurovit 30Tab. Egy",
-            "Milga 40tab (Neurovit)",
-            "Feroglobin 30cap",
-            "Limitless Magnesium 150mg 30Tab",
-            "Omega A.I.T 30 cap (3 Strips)",
-        ],
-        "search_hint": "فيتامين د / كالسيوم / زنك / نيوروفيت / ميلجا / حديد / أوميغا",
-    },
-    "kids": {
-        "button": "👶 أطفال",
-        "title": "أدوية ومستلزمات الأطفال",
-        "popular_names": [
-            "Brufen 100mg/5ml syrup 150ml",
-            "Cetal 250mg/5ml sus. 60ml (Paracetamol)",
-            "Revanin 125mg syr 100ml (Paracetamol)",
-            "Congestal syrup 120ml",
-            "Claritine syrup 100ml (lorax)",
-            "Telfast 30mg/5ml Syrup 100ml",
-            "Linex Baby drop 8ml (Probiotic)",
-            "Otrivin baby saline drops 15ml",
-            "Profi Kids vita gummies (M.V.) 60gum",
-            "Profi Kids D Plus Calcium 120gummies",
-        ],
-        "search_hint": "شراب أطفال / بروفين شراب / سيتال / ريفانين / لينكس بيبي",
-    },
-}
 
-OTC_CATEGORY_KEYBOARD = [
-    [OTC_CATEGORIES["pain"]["button"], OTC_CATEGORIES["stomach"]["button"]],
-    [OTC_CATEGORIES["allergy"]["button"], OTC_CATEGORIES["cough"]["button"]],
-    [OTC_CATEGORIES["gi"]["button"], OTC_CATEGORIES["skin"]["button"]],
-    [OTC_CATEGORIES["muscle"]["button"], OTC_CATEGORIES["vitamins"]["button"]],
-    [OTC_CATEGORIES["kids"]["button"]],
-    ["🔍 البحث عن منتج", "🔙 رجوع للمنتجات"],
-]
+def normalize_header(header):
+    return normalize_text(header).replace(" ", "_")
 
 
-def category_key_from_text(text: str):
-    cleaned_text = clean_button_text(text)
-    for key, data in OTC_CATEGORIES.items():
-        if cleaned_text == clean_button_text(data["button"]):
-            return key
-    return None
+def first_value(row, *keys, default=""):
+    for key in keys:
+        value = row.get(key)
+        if value not in [None, ""]:
+            return value
+    return default
 
 
-def find_product_flexible(product_name: str):
-    target = normalize_text(product_name)
-    for idx, product in enumerate(load_products()):
-        name = normalize_text(product.get("name", ""))
-        if name == target:
-            return idx, product
-
-    # قبول اختلافات بسيطة في الكتابة
-    for idx, product in enumerate(load_products()):
-        name = normalize_text(product.get("name", ""))
-        if target and (target in name or name in target):
-            return idx, product
-
-    return None, None
-
-
-def category_popular_results(category_key: str, limit: int = 10):
-    data = OTC_CATEGORIES.get(category_key)
-    if not data:
+def split_keywords(value):
+    if isinstance(value, list):
+        return value
+    text = str(value or "").strip()
+    if not text:
         return []
-
-    results = []
-    seen_indexes = set()
-
-    for popular_name in data.get("popular_names", []):
-        idx, product = find_product_flexible(popular_name)
-        if product and idx not in seen_indexes:
-            results.append((1.0, idx, product))
-            seen_indexes.add(idx)
-
-    return results[:limit]
+    return [item.strip() for item in re.split(r"[,،;؛\\n]+", text) if item.strip()]
 
 
-def category_popular_keyboard(category_key: str, results):
-    buttons = []
+def truthy(value):
+    text = str(value or "").strip().lower()
+    return text in ["1", "true", "yes", "y", "متوفر", "نعم", "available"]
 
-    for score, idx, product in results:
-        name = product.get("name", "منتج")
-        buttons.append([InlineKeyboardButton(f"💊 {name}", callback_data=f"product:view:{idx}")])
 
-    title = OTC_CATEGORIES[category_key]["title"]
-    buttons.append([
-        InlineKeyboardButton(f"🔍 البحث عن {title} أخرى", callback_data=f"category_search:{category_key}")
-    ])
-    buttons.append([InlineKeyboardButton("🔙 رجوع لتصنيفات OTC", callback_data="category_back:otc")])
-    buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
+def get_google_client():
+    if not GOOGLE_SHEET_ID or gspread is None or Credentials is None:
+        return None
 
-    return InlineKeyboardMarkup(buttons)
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+
+    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+
+    try:
+        if service_account_json:
+            info = json.loads(service_account_json)
+            credentials = Credentials.from_service_account_info(info, scopes=scopes)
+        elif os.path.exists("service_account.json"):
+            credentials = Credentials.from_service_account_file("service_account.json", scopes=scopes)
+        else:
+            print("GOOGLE_SHEETS_NOT_CONFIGURED: missing GOOGLE_SERVICE_ACCOUNT_JSON or service_account.json")
+            return None
+
+        return gspread.authorize(credentials)
+
+    except Exception as e:
+        print(f"GOOGLE_CLIENT_ERROR: {e}")
+        return None
+
+
+def sheet_row_to_product(row):
+    # يدعم أسماء أعمدة عربية وإنجليزية
+    product = {
+        "id": first_value(row, "id", "كود", "رقم", default=""),
+        "name": first_value(row, "name", "اسم_المنتج", "الاسم", "اسم", default="").strip(),
+        "category": first_value(row, "category", "التصنيف", "القسم", default="OTC"),
+        "cost_price": first_value(row, "cost_price", "سعر_الشراء", "سعر_التكلفه", "تكلفه", default=""),
+        "price": first_value(row, "sell_price", "price", "سعر_البيع", "السعر", default="0"),
+        "sell_price_box": first_value(row, "sell_price_box", "سعر_العلبه", "سعر_البيع", "sell_price", "price", default="0"),
+        "sell_price_strip": first_value(row, "sell_price_strip", "سعر_الشريط", default="0"),
+        "description": first_value(row, "description", "الوصف", "الاستخدام", default=""),
+        "therapeutic_class": first_value(row, "therapeutic_class", "الفئه_العلاجيه", "التصنيف_العلاجي", "نوع_العلاج", default=""),
+        "active_ingredient_or_equivalent": first_value(row, "active_ingredient", "الماده_الفعاله", "المادة_الفعالة", "equivalent", default=""),
+        "image": first_value(row, "image", "رابط_الصوره", "الصوره", default=""),
+        "brand": first_value(row, "brand", "الشركه", default=""),
+        "pack_size": first_value(row, "pack_size", "حجم_العبوه", default=""),
+        "pack_unit": first_value(row, "pack_unit", "وحده_العبوه", default=""),
+        "strips_count": first_value(row, "strips_count", "عدد_الاشرطه", default=""),
+        "units_per_strip": first_value(row, "units_per_strip", "عدد_الوحدات_في_الشريط", default=""),
+        "available": first_value(row, "available", "الحاله", "متوفر", default="متوفر"),
+        "can_sell_strip": truthy(first_value(row, "can_sell_strip", "بيع_بالشريط", default="")),
+        "keywords": split_keywords(first_value(row, "keywords", "كلمات_مفتاحيه", "كلمات_البحث", default="")),
+        "aliases": split_keywords(first_value(row, "aliases", "اسماء_شائعه", "اسماء_اخرى", default="")),
+    }
+
+    return product
+
+
+def load_products_from_google_sheets():
+    client = get_google_client()
+    if client is None:
+        return None
+
+    try:
+        sheet = client.open_by_key(GOOGLE_SHEET_ID)
+        worksheet = sheet.worksheet(GOOGLE_PRODUCTS_WORKSHEET)
+        rows = worksheet.get_all_records()
+
+        products = []
+        for raw_row in rows:
+            normalized_row = {
+                normalize_header(k): v
+                for k, v in raw_row.items()
+            }
+            product = sheet_row_to_product(normalized_row)
+
+            if not product.get("name"):
+                continue
+
+            if str(product.get("available", "")).strip() in ["غير متوفر", "0", "false", "False", "no", "No"]:
+                continue
+
+            products.append(product)
+
+        print(f"GOOGLE_PRODUCTS_LOADED: {len(products)} products")
+        return products
+
+    except Exception as e:
+        print(f"GOOGLE_SHEETS_PRODUCTS_ERROR: {e}")
+        return None
+
+
+def append_order_to_google_sheets(order):
+    client = get_google_client()
+    if client is None:
+        return
+
+    try:
+        sheet = client.open_by_key(GOOGLE_SHEET_ID)
+
+        try:
+            worksheet = sheet.worksheet(GOOGLE_ORDERS_WORKSHEET)
+        except Exception:
+            worksheet = sheet.add_worksheet(title=GOOGLE_ORDERS_WORKSHEET, rows=1000, cols=12)
+            worksheet.append_row([
+                "order_id", "status", "customer_name", "customer_phone", "customer_address",
+                "items", "total", "customer_chat_id", "created_at", "updated_at"
+            ])
+
+        items_text = " | ".join(
+            f"{item.get('name')} ({item.get('unit_label', 'علبة')}) x {item.get('qty')} = {item.get('subtotal')}"
+            for item in order.get("items", [])
+        )
+
+        worksheet.append_row([
+            order.get("id"),
+            order.get("status"),
+            order.get("customer_name"),
+            order.get("customer_phone"),
+            order.get("customer_address"),
+            items_text,
+            order.get("total"),
+            order.get("customer_chat_id"),
+            order.get("created_at"),
+            order.get("updated_at", ""),
+        ])
+
+    except Exception as e:
+        print(f"GOOGLE_SHEETS_ORDER_APPEND_ERROR: {e}")
 
 
 def load_products():
+    now = datetime.now()
+
+    # 1) جرّب Google Sheets مع كاش لمدة دقيقة حتى لا يكون البوت بطيئًا
+    if GOOGLE_SHEET_ID:
+        loaded_at = _products_cache.get("loaded_at")
+        cached_data = _products_cache.get("data", [])
+
+        if loaded_at and cached_data and (now - loaded_at).total_seconds() < PRODUCTS_CACHE_TTL_SECONDS:
+            return cached_data
+
+        sheet_products = load_products_from_google_sheets()
+        if sheet_products is not None:
+            _products_cache["loaded_at"] = now
+            _products_cache["data"] = sheet_products
+            return sheet_products
+
+    # 2) fallback: إذا Google Sheets لم يعمل، استخدم products.json
     try:
         with open("products.json", "r", encoding="utf-8") as file:
             data = json.load(file)
+
         if isinstance(data, list):
             return data
+
         if isinstance(data, dict) and isinstance(data.get("products"), list):
             return data["products"]
+
         print("PRODUCTS_FILE_FORMAT_ERROR")
         return []
+
     except Exception as e:
         print(f"LOAD_PRODUCTS_ERROR: {e}")
         return []
@@ -651,41 +620,8 @@ async def show_products_menu_to_message(message):
 
 async def show_otc_products_to_message(message):
     await message.reply_text(
-        "💊 قسم أدوية OTC\n\n"
-        "اختر نوع الدواء الذي تبحث عنه:\n"
-        "سأعرض لك أشهر المنتجات المتوفرة في الكشف، وإذا لم تجد دواءك اضغط زر البحث داخل التصنيف.",
-        reply_markup=ReplyKeyboardMarkup(OTC_CATEGORY_KEYBOARD, resize_keyboard=True),
-    )
-
-
-async def show_otc_category_to_message(message, category_key: str):
-    data = OTC_CATEGORIES.get(category_key)
-
-    if not data:
-        await show_otc_products_to_message(message)
-        return
-
-    results = category_popular_results(category_key, limit=10)
-    title = data["title"]
-
-    if results:
-        text = (
-            f"⭐ منتجات مشهورة في {title}\n\n"
-            "اختر المنتج لعرض التفاصيل وإضافته للسلة.\n\n"
-            f"إذا لم تجد دواءك اضغط:\n"
-            f"🔍 البحث عن {title} أخرى\n\n"
-            f"أمثلة للبحث: {data.get('search_hint', '')}"
-        )
-    else:
-        text = (
-            f"لم تظهر منتجات مشهورة في {title} حاليًا.\n\n"
-            f"لكن يمكنك البحث مباشرة.\n"
-            f"أمثلة للبحث: {data.get('search_hint', '')}"
-        )
-
-    await message.reply_text(
-        text,
-        reply_markup=category_popular_keyboard(category_key, results),
+        "💊 قسم أدوية OTC\n\nاكتب اسم المنتج أو جزءًا منه الآن للبحث داخل الأدوية.\n\nمثال: Panadol / Brufen / Abimol / فيتامين",
+        reply_markup=ReplyKeyboardMarkup([["🔍 البحث عن منتج"], ["🔙 رجوع للمنتجات"]], resize_keyboard=True),
     )
 
 
@@ -765,9 +701,6 @@ async def route_shop_text_to_message(message, context: ContextTypes.DEFAULT_TYPE
 
     elif text == "💊 أدوية OTC":
         await show_otc_products_to_message(message)
-
-    elif category_key_from_text(text):
-        await show_otc_category_to_message(message, category_key_from_text(text))
 
     elif text in product_names:
         await show_product_details_to_message(message, text)
@@ -925,33 +858,6 @@ async def show_product_from_callback(update: Update, context: ContextTypes.DEFAU
         return
 
     await show_product_details_to_message(query.message, product.get("name"))
-
-
-async def category_search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    category_key = query.data.split(":")[1]
-    data = OTC_CATEGORIES.get(category_key)
-
-    if not data:
-        await query.message.reply_text("اختر التصنيف مرة أخرى.")
-        return
-
-    context.user_data["search_step"] = True
-    context.user_data["search_category"] = category_key
-
-    await query.message.reply_text(
-        f"🔍 البحث داخل {data['title']}\n\n"
-        "اكتب اسم الدواء أو جزءًا منه:\n"
-        f"أمثلة: {data.get('search_hint', 'Panadol / Brufen / فيتامين')}"
-    )
-
-
-async def category_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await show_otc_products_to_message(query.message)
 
 
 async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1203,13 +1109,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"USER_TEXT_RAW={repr(raw_text)} | CANONICAL={repr(text)}")
 
     if text == "💊 أدوية OTC" and not context.user_data.get("order_step"):
-        context.user_data.pop("search_step", None)
+        context.user_data["search_step"] = True
         await show_otc_products_to_message(update.message)
-        return
-
-    category_key = category_key_from_text(text)
-    if category_key and not context.user_data.get("order_step"):
-        await show_otc_category_to_message(update.message, category_key)
         return
 
     if text == "💊 المنتجات" and not context.user_data.get("order_step"):
@@ -1320,6 +1221,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         orders = load_orders()
         orders.append(order)
         save_orders(orders)
+        append_order_to_google_sheets(order)
 
         order_message = (
             f"🛒 طلب جديد\n\n"
@@ -1375,9 +1277,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == "💊 أدوية OTC":
         await show_otc_products(update)
-
-    elif category_key_from_text(text):
-        await show_otc_category_to_message(update.message, category_key_from_text(text))
 
     elif text in product_names:
         await show_product_details(update, text)
@@ -1461,8 +1360,6 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CallbackQueryHandler(start_search_callback, pattern=r"^search:new$"))
-    app.add_handler(CallbackQueryHandler(category_search_callback, pattern=r"^category_search:"))
-    app.add_handler(CallbackQueryHandler(category_back_callback, pattern=r"^category_back:otc$"))
     app.add_handler(CallbackQueryHandler(show_product_from_callback, pattern=r"^product:view:"))
     app.add_handler(CallbackQueryHandler(start_order_from_button, pattern=r"^order:"))
     app.add_handler(CallbackQueryHandler(handle_checkout_interrupt, pattern=r"^checkout_interrupt:"))
