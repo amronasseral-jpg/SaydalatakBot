@@ -1,12 +1,3 @@
-import os
+TOKEN = "8806198611:AAFlzQpYZ1pQ-T5IAKYgWClXrxYDPCaYxOs"
 
-TOKEN = (
-    os.getenv("TOKEN")
-    or os.getenv("BOT_TOKEN")
-    or ""
-).strip()
-
-if not TOKEN:
-    raise RuntimeError("TOKEN is missing")
-
-ADMIN_CHAT_ID = int((os.getenv("ADMIN_CHAT_ID") or "1027957590").strip())
+ADMIN_CHAT_ID = 1027957590
