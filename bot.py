@@ -39,6 +39,96 @@ products_keyboard = [
 ]
 
 
+OTC_CATEGORIES = {
+    "pain": {
+        "button": "💊 مسكنات وخافض حرارة",
+        "title": "مسكنات وخافض حرارة",
+        "query": "مسكن خافض حرارة صداع باراسيتامول paracetamol ibuprofen panadol brufen abimol",
+    },
+    "stomach": {
+        "button": "🔥 معدة وحموضة",
+        "title": "أدوية المعدة والحموضة",
+        "query": "معدة حموضة ارتجاع حرقان قولون omeprazole pantoprazole gaviscon controloc nexium",
+    },
+    "allergy": {
+        "button": "🤧 حساسية ورشح",
+        "title": "أدوية الحساسية والرشح",
+        "query": "حساسية رشح زكام cetirizine loratadine fexofenadine telfast claritine",
+    },
+    "cough": {
+        "button": "😷 كحة وبلغم",
+        "title": "أدوية الكحة والبلغم",
+        "query": "كحة سعال بلغم cough mucolytic broncho ambroxol guaifenesin",
+    },
+    "gi": {
+        "button": "🚽 إسهال وإمساك",
+        "title": "أدوية الإسهال والإمساك",
+        "query": "اسهال امساك مغص قولون loperamide lactulose bisacodyl",
+    },
+    "skin": {
+        "button": "🧴 جلدية وحروق",
+        "title": "أدوية الجلدية والحروق",
+        "query": "جلدية حروق مرهم كريم فطريات حساسية جلد fusidic clotrimazole panthenol",
+    },
+    "muscle": {
+        "button": "🦴 عضلات ومفاصل",
+        "title": "أدوية العضلات والمفاصل",
+        "query": "عضلات مفاصل مرخي عضلات التهاب diclofenac ibuprofen gel muscle",
+    },
+    "vitamins": {
+        "button": "💪 فيتامينات ومكملات",
+        "title": "الفيتامينات والمكملات",
+        "query": "فيتامين مكملات vitamin omega zinc magnesium calcium iron hair",
+    },
+    "kids": {
+        "button": "👶 أطفال",
+        "title": "أدوية ومستلزمات الأطفال",
+        "query": "اطفال شراب نقط baby syrup drops pediatric",
+    },
+}
+
+OTC_CATEGORY_KEYBOARD = [
+    [OTC_CATEGORIES["pain"]["button"], OTC_CATEGORIES["stomach"]["button"]],
+    [OTC_CATEGORIES["allergy"]["button"], OTC_CATEGORIES["cough"]["button"]],
+    [OTC_CATEGORIES["gi"]["button"], OTC_CATEGORIES["skin"]["button"]],
+    [OTC_CATEGORIES["muscle"]["button"], OTC_CATEGORIES["vitamins"]["button"]],
+    [OTC_CATEGORIES["kids"]["button"]],
+    ["🔍 البحث عن منتج", "🔙 رجوع للمنتجات"],
+]
+
+
+def category_key_from_text(text: str):
+    cleaned_text = clean_button_text(text)
+    for key, data in OTC_CATEGORIES.items():
+        if cleaned_text == clean_button_text(data["button"]):
+            return key
+    return None
+
+
+def category_popular_results(category_key: str, limit: int = 8):
+    data = OTC_CATEGORIES.get(category_key)
+    if not data:
+        return []
+    return search_products(data["query"], limit=limit)
+
+
+def category_popular_keyboard(category_key: str, results):
+    buttons = []
+
+    for score, idx, product in results:
+        name = product.get("name", "منتج")
+        buttons.append([InlineKeyboardButton(f"💊 {name}", callback_data=f"product:view:{idx}")])
+
+    title = OTC_CATEGORIES[category_key]["title"]
+    buttons.append([
+        InlineKeyboardButton(f"🔍 البحث عن {title} أخرى", callback_data=f"category_search:{category_key}")
+    ])
+    buttons.append([InlineKeyboardButton("🔙 رجوع لتصنيفات OTC", callback_data="category_back:otc")])
+    buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
+
+    return InlineKeyboardMarkup(buttons)
+
+
 def load_products():
     try:
         with open("products.json", "r", encoding="utf-8") as file:
@@ -421,8 +511,39 @@ async def show_products_menu_to_message(message):
 
 async def show_otc_products_to_message(message):
     await message.reply_text(
-        "💊 قسم أدوية OTC\n\nاكتب اسم المنتج أو جزءًا منه الآن للبحث داخل الأدوية.\n\nمثال: Panadol / Brufen / Abimol / فيتامين",
-        reply_markup=ReplyKeyboardMarkup([["🔍 البحث عن منتج"], ["🔙 رجوع للمنتجات"]], resize_keyboard=True),
+        "💊 قسم أدوية OTC\n\n"
+        "اختر نوع الدواء الذي تبحث عنه:\n"
+        "سأعرض لك المنتجات المشهورة أولًا، وإذا لم تجد دواءك اضغط زر البحث داخل التصنيف.",
+        reply_markup=ReplyKeyboardMarkup(OTC_CATEGORY_KEYBOARD, resize_keyboard=True),
+    )
+
+
+async def show_otc_category_to_message(message, category_key: str):
+    data = OTC_CATEGORIES.get(category_key)
+
+    if not data:
+        await show_otc_products_to_message(message)
+        return
+
+    results = category_popular_results(category_key, limit=8)
+    title = data["title"]
+
+    if results:
+        text = (
+            f"⭐ المنتجات المشهورة في {title}\n\n"
+            "اختر المنتج لعرض التفاصيل وإضافته للسلة.\n\n"
+            f"إذا لم تجد دواءك اضغط:\n"
+            f"🔍 البحث عن {title} أخرى"
+        )
+    else:
+        text = (
+            f"لم أجد منتجات مشهورة في {title} حاليًا.\n\n"
+            "استخدم زر البحث واكتب اسم الدواء أو جزءًا منه."
+        )
+
+    await message.reply_text(
+        text,
+        reply_markup=category_popular_keyboard(category_key, results),
     )
 
 
@@ -502,6 +623,9 @@ async def route_shop_text_to_message(message, context: ContextTypes.DEFAULT_TYPE
 
     elif text == "💊 أدوية OTC":
         await show_otc_products_to_message(message)
+
+    elif category_key_from_text(text):
+        await show_otc_category_to_message(message, category_key_from_text(text))
 
     elif text in product_names:
         await show_product_details_to_message(message, text)
@@ -659,6 +783,33 @@ async def show_product_from_callback(update: Update, context: ContextTypes.DEFAU
         return
 
     await show_product_details_to_message(query.message, product.get("name"))
+
+
+async def category_search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    category_key = query.data.split(":")[1]
+    data = OTC_CATEGORIES.get(category_key)
+
+    if not data:
+        await query.message.reply_text("اختر التصنيف مرة أخرى.")
+        return
+
+    context.user_data["search_step"] = True
+    context.user_data["search_category"] = category_key
+
+    await query.message.reply_text(
+        f"🔍 البحث داخل {data['title']}\n\n"
+        "اكتب اسم الدواء أو جزءًا منه:\n"
+        "مثال: Panadol / Brufen / Gaviscon / فيتامين"
+    )
+
+
+async def category_back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await show_otc_products_to_message(query.message)
 
 
 async def start_order_from_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -910,8 +1061,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"USER_TEXT_RAW={repr(raw_text)} | CANONICAL={repr(text)}")
 
     if text == "💊 أدوية OTC" and not context.user_data.get("order_step"):
-        context.user_data["search_step"] = True
+        context.user_data.pop("search_step", None)
         await show_otc_products_to_message(update.message)
+        return
+
+    category_key = category_key_from_text(text)
+    if category_key and not context.user_data.get("order_step"):
+        await show_otc_category_to_message(update.message, category_key)
         return
 
     if text == "💊 المنتجات" and not context.user_data.get("order_step"):
@@ -931,6 +1087,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("search_step", None)
         else:
             context.user_data.pop("search_step", None)
+            context.user_data.pop("search_category", None)
             await show_search_results_message(update.message, context, text)
             return
 
@@ -1078,6 +1235,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "💊 أدوية OTC":
         await show_otc_products(update)
 
+    elif category_key_from_text(text):
+        await show_otc_category_to_message(update.message, category_key_from_text(text))
+
     elif text in product_names:
         await show_product_details(update, text)
 
@@ -1160,6 +1320,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CallbackQueryHandler(start_search_callback, pattern=r"^search:new$"))
+    app.add_handler(CallbackQueryHandler(category_search_callback, pattern=r"^category_search:"))
+    app.add_handler(CallbackQueryHandler(category_back_callback, pattern=r"^category_back:otc$"))
     app.add_handler(CallbackQueryHandler(show_product_from_callback, pattern=r"^product:view:"))
     app.add_handler(CallbackQueryHandler(start_order_from_button, pattern=r"^order:"))
     app.add_handler(CallbackQueryHandler(handle_checkout_interrupt, pattern=r"^checkout_interrupt:"))
