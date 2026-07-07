@@ -20,9 +20,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TOKEN
-
-ADMIN_CHAT_ID = 1027957590
+from config import TOKEN, ADMIN_CHAT_ID
 ORDERS_FILE = "orders.json"
 
 main_keyboard = [
@@ -42,8 +40,18 @@ products_keyboard = [
 
 
 def load_products():
-    with open("products.json", "r", encoding="utf-8") as file:
-        return json.load(file)
+    try:
+        with open("products.json", "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and isinstance(data.get("products"), list):
+            return data["products"]
+        print("PRODUCTS_FILE_FORMAT_ERROR")
+        return []
+    except Exception as e:
+        print(f"LOAD_PRODUCTS_ERROR: {e}")
+        return []
 
 
 def load_orders():
@@ -126,52 +134,37 @@ def search_products(query: str, limit: int = 8):
     query_norm = normalize_text(query)
     if not query_norm:
         return []
-
-    products = load_products()
     scored = []
-
-    for idx, product in enumerate(products):
-        combined = normalize_text(product_search_text(product))
-        name_norm = normalize_text(product.get("name", ""))
-
-        score = 0.0
-
-        # Direct match in name or keywords/description
-        if query_norm in name_norm:
-            score = max(score, 1.0)
-        elif query_norm in combined:
-            score = max(score, 0.9)
-
-        # Word-level fuzzy matching
-        words = combined.split()
-        if words:
-            best_word_score = max((difflib.SequenceMatcher(None, query_norm, word).ratio() for word in words), default=0)
-            score = max(score, best_word_score)
-
-        # Full-name fuzzy matching
-        name_score = difflib.SequenceMatcher(None, query_norm, name_norm).ratio()
-        score = max(score, name_score)
-
-        # Keep reasonably close matches
-        if score >= 0.45:
-            scored.append((score, idx, product))
-
-    scored.sort(key=lambda item: item[0], reverse=True)
+    for idx, product in enumerate(load_products()):
+        try:
+            if not isinstance(product, dict):
+                continue
+            combined = normalize_text(product_search_text(product))
+            name_norm = normalize_text(product.get("name", ""))
+            if not name_norm:
+                continue
+            score = 0.0
+            if query_norm in name_norm:
+                score = 1.0
+            elif query_norm in combined:
+                score = 0.9
+            words = combined.split()
+            if words:
+                score = max(score, max((difflib.SequenceMatcher(None, query_norm, w).ratio() for w in words), default=0))
+            score = max(score, difflib.SequenceMatcher(None, query_norm, name_norm).ratio())
+            if score >= 0.40:
+                scored.append((score, idx, product))
+        except Exception as e:
+            print(f"SEARCH_PRODUCT_ERROR {idx}: {e}")
+    scored.sort(key=lambda x: x[0], reverse=True)
     return scored[:limit]
 
 
 def search_results_keyboard(results):
     buttons = []
     for score, idx, product in results:
-        buttons.append([
-            InlineKeyboardButton(f"💊 {product.get('name')}", callback_data=f"product:view:{idx}")
-        ])
-
-        row = [InlineKeyboardButton("➕ علبة", callback_data=f"cart:add:{idx}:box")]
-        if can_sell_strip(product) and product_strip_price(product) > 0:
-            row.append(InlineKeyboardButton("💊 شريط", callback_data=f"cart:add:{idx}:strip"))
-        buttons.append(row)
-
+        name = product.get("name", "منتج")
+        buttons.append([InlineKeyboardButton(f"💊 {name}", callback_data=f"product:view:{idx}")])
     buttons.append([InlineKeyboardButton("🔍 بحث جديد", callback_data="search:new")])
     buttons.append([InlineKeyboardButton("🛒 عرض السلة", callback_data="cart:view")])
     return InlineKeyboardMarkup(buttons)
@@ -337,44 +330,32 @@ def checkout_interrupt_keyboard():
 
 def clean_button_text(text: str):
     text = str(text).strip()
-    # Remove common emojis/symbols used in buttons so RTL/LTR order doesn't matter
-    for ch in ["💊", "🔍", "✨", "💇", "👶", "🩺", "🎁", "🛒", "📦", "📞", "💪", "🔙"]:
+    for ch in ["💊", "🔍", "✨", "💇", "👶", "🩺", "🎁", "🛒", "📦", "📞", "💪", "🔙", "🏠"]:
         text = text.replace(ch, "")
-    text = text.replace("الأ", "الا")
     text = text.replace("إ", "ا").replace("أ", "ا").replace("آ", "ا")
-    text = re.sub(r"\s+", " ", text).strip()
+    text = text.replace("ة", "ه").replace("ى", "ي")
+    text = re.sub(r"\s+", " ", text).strip().lower()
     return text
 
 
 def canonical_text(text: str):
     original = str(text).strip()
     cleaned = clean_button_text(original)
+    if "otc" in cleaned or "ادويه" in cleaned or "ادوية" in cleaned:
+        return "💊 أدوية OTC"
+    if "بحث" in cleaned:
+        return "🔍 البحث عن منتج"
+    if "منتجات" in cleaned:
+        return "💊 المنتجات"
+    if "السله" in cleaned or "السلة" in cleaned:
+        return "🛒 السلة"
+    if "رجوع" in cleaned and "رئيس" in cleaned:
+        return "🔙 رجوع للقائمة الرئيسية"
+    if "رجوع" in cleaned:
+        return "🔙 رجوع للمنتجات"
+    return original
 
-    mapping = {
-        "المنتجات": "💊 المنتجات",
-        "بحث عن منتج": "🔍 البحث عن منتج",
-        "البحث عن منتج": "🔍 البحث عن منتج",
-        "السلة": "🛒 السلة",
-        "طلباتي": "📦 طلباتي",
-        "تواصل معنا": "📞 تواصل معنا",
-        "العروض": "🎁 العروض",
-        "اسال الصيدلي": "🩺 اسأل الصيدلي",
-        "الام والطفل": "👶 الأم والطفل",
-        "العنايه بالشعر": "💇 العناية بالشعر",
-        "العنايه بالبشره": "✨ العناية بالبشرة",
-        "ادويه OTC": "💊 أدوية OTC",
-        "ادوية OTC": "💊 أدوية OTC",
-        "مكملات غذائيه": "💪 مكملات غذائية",
-        "مستحضرات تجميل": "✨ مستحضرات تجميل",
-        "مستلزمات اطفال": "👶 مستلزمات أطفال",
-        "اجهزه طبيه": "🩺 أجهزة طبية",
-        "اجهزة طبية": "🩺 أجهزة طبية",
-        "رجوع للمنتجات": "🔙 رجوع للمنتجات",
-        "رجوع للقائمه الرئيسيه": "🔙 رجوع للقائمة الرئيسية",
-        "رجوع للقائمة الرئيسية": "🔙 رجوع للقائمة الرئيسية",
-    }
 
-    return mapping.get(cleaned, original)
 
 
 def is_same_button(text: str, label: str):
@@ -439,22 +420,9 @@ async def show_products_menu_to_message(message):
 
 
 async def show_otc_products_to_message(message):
-    products = load_products()
-
-    otc_products = [p for p in products if is_otc_product(p)]
-
-    # إذا لم تكن التصنيفات مضبوطة في products.json، اعرض أول 30 منتج بدل ما يتوقف البوت
-    if not otc_products:
-        otc_products = products[:30]
-
     await message.reply_text(
-        "💊 أدوية OTC\n\n"
-        "اختر المنتج من القائمة أو استخدم زر 🔍 البحث عن منتج للوصول لأي صنف بسرعة.\n\n"
-        f"📦 المعروض الآن: {min(len(otc_products), 30)} منتج",
-        reply_markup=ReplyKeyboardMarkup(
-            product_list_keyboard(otc_products, max_items=30),
-            resize_keyboard=True
-        ),
+        "💊 قسم أدوية OTC\n\nاكتب اسم المنتج أو جزءًا منه الآن للبحث داخل الأدوية.\n\nمثال: Panadol / Brufen / Abimol / فيتامين",
+        reply_markup=ReplyKeyboardMarkup([["🔍 البحث عن منتج"], ["🔙 رجوع للمنتجات"]], resize_keyboard=True),
     )
 
 
@@ -941,6 +909,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = canonical_text(raw_text)
     print(f"USER_TEXT_RAW={repr(raw_text)} | CANONICAL={repr(text)}")
 
+    if text == "💊 أدوية OTC" and not context.user_data.get("order_step"):
+        context.user_data["search_step"] = True
+        await show_otc_products_to_message(update.message)
+        return
+
     if text == "💊 المنتجات" and not context.user_data.get("order_step"):
         await show_products_menu(update)
         return
@@ -954,7 +927,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get("search_step"):
-        if is_navigation_or_product_text(text):
+        if text in ["💊 المنتجات", "🔙 رجوع للمنتجات", "🔙 رجوع للقائمة الرئيسية", "🛒 السلة"]:
             context.user_data.pop("search_step", None)
         else:
             context.user_data.pop("search_step", None)

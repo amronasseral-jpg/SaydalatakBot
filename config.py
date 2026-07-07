@@ -1,10 +1,7 @@
 import os
 
-TOKEN = os.getenv("TOKEN")
+TOKEN = (os.getenv("TOKEN") or "").strip()
+if not TOKEN:
+    raise RuntimeError("TOKEN is missing. Add TOKEN in Railway Variables as one line, then Redeploy.")
 
-if TOKEN is None:
-    raise ValueError("TOKEN environment variable is not set")
-
-TOKEN = TOKEN.strip()
-
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
+ADMIN_CHAT_ID = int((os.getenv("ADMIN_CHAT_ID") or "1027957590").strip())
