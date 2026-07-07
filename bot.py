@@ -99,6 +99,14 @@ def get_google_client():
     service_account_json = GOOGLE_SERVICE_ACCOUNT_JSON
     try:
         if service_account_json:
+            service_account_json = service_account_json.strip()
+
+            # إذا تم لصق JSON داخل علامات اقتباس في Railway
+            if (service_account_json.startswith("'") and service_account_json.endswith("'")) or (
+                service_account_json.startswith('"') and service_account_json.endswith('"')
+            ):
+                service_account_json = service_account_json[1:-1]
+
             info = json.loads(service_account_json)
             credentials = Credentials.from_service_account_info(info, scopes=scopes)
         elif os.path.exists("service_account.json"):
@@ -1352,6 +1360,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     print("Starting bot...")
+    print("STARTUP_TOKEN =", "YES" if TOKEN else "NO", flush=True)
+    print("STARTUP_GOOGLE_SHEET_ID =", "YES" if GOOGLE_SHEET_ID else "NO", flush=True)
+    print("STARTUP_GOOGLE_JSON =", "YES" if GOOGLE_SERVICE_ACCOUNT_JSON else "NO", flush=True)
 
     app = ApplicationBuilder().token(TOKEN).build()
 
