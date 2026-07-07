@@ -28,7 +28,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TOKEN, ADMIN_CHAT_ID
+from config import TOKEN, ADMIN_CHAT_ID, GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
 ORDERS_FILE = "orders.json"
 
 # ===== Google Sheets Settings =====
@@ -37,7 +37,6 @@ ORDERS_FILE = "orders.json"
 # GOOGLE_PRODUCTS_WORKSHEET = Products
 # GOOGLE_ORDERS_WORKSHEET = Orders
 # GOOGLE_SERVICE_ACCOUNT_JSON = محتوى ملف service account بصيغة JSON
-GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
 GOOGLE_PRODUCTS_WORKSHEET = os.getenv("GOOGLE_PRODUCTS_WORKSHEET", "Products").strip()
 GOOGLE_ORDERS_WORKSHEET = os.getenv("GOOGLE_ORDERS_WORKSHEET", "Orders").strip()
 PRODUCTS_CACHE_TTL_SECONDS = int(os.getenv("PRODUCTS_CACHE_TTL_SECONDS", "60"))
@@ -97,8 +96,7 @@ def get_google_client():
 
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 
-    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-
+    service_account_json = GOOGLE_SERVICE_ACCOUNT_JSON
     try:
         if service_account_json:
             info = json.loads(service_account_json)
