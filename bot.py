@@ -39,51 +39,165 @@ products_keyboard = [
 ]
 
 
+# تصنيفات OTC + منتجات مشهورة من كشف المنتجات
+# ملاحظة: نستخدم أسماء المنتجات كما تظهر في products.json/كشف المنتجات حتى تظهر النتائج مباشرة
 OTC_CATEGORIES = {
     "pain": {
         "button": "💊 مسكنات وخافض حرارة",
         "title": "مسكنات وخافض حرارة",
-        "query": "مسكن خافض حرارة صداع باراسيتامول paracetamol ibuprofen panadol brufen abimol",
+        "popular_names": [
+            "Panadol Extra 24Tab",
+            "Panadol Advance 500mg 48tab",
+            "Abimol 500mg 20tab (Paracetamol)",
+            "Brufen 400mg 30tab",
+            "Brufen 600mg 30tab",
+            "Cetal 500mg 20tab (Paracetamol)",
+            "Cataflam 20Tab. egy",
+            "Catafast 50mg 9Sach.",
+            "Paramol 1000mg 20tab (Paracetamol)",
+            "Norgesic 20Tab",
+        ],
+        "search_hint": "بنادول / بروفين / أبيمول / كاتافلام / مسكن / صداع / حرارة",
     },
     "stomach": {
         "button": "🔥 معدة وحموضة",
         "title": "أدوية المعدة والحموضة",
-        "query": "معدة حموضة ارتجاع حرقان قولون omeprazole pantoprazole gaviscon controloc nexium",
+        "popular_names": [
+            "Controloc 40mg 14tab",
+            "Pantoloc 40mg 14Tab (Pantover)",
+            "Pantoloc 20mg 14Tab (Pantover)",
+            "Nexium 40mg 28Cap",
+            "Nexicure 40mg 20Tab(Nexium)",
+            "Omez 20mg 14Cap",
+            "Omez 40mg 20 cap",
+            "Rennie /24tab",
+            "Mucogel Susp 125ml",
+            "Eucarbon /30Tab egy",
+            "Buscopan 20tab (Scobutyl)",
+            "Spasmodigestin 30 Tab",
+        ],
+        "search_hint": "كونترولوك / نكسيوم / أوميز / ريني / حموضة / مغص / قولون",
     },
     "allergy": {
         "button": "🤧 حساسية ورشح",
         "title": "أدوية الحساسية والرشح",
-        "query": "حساسية رشح زكام cetirizine loratadine fexofenadine telfast claritine",
+        "popular_names": [
+            "Congestal 20 tab",
+            "Congestal syrup 120ml",
+            "Coldatrexy Cold & Flu 30Tab",
+            "Conta-Flu 20Tab",
+            "Flurest N 20Tab",
+            "Claritine 10mg 20 tab (lorax)",
+            "Claritine syrup 100ml (lorax)",
+            "Telfast 120mg 20 tab egy",
+            "Telfast 180mg 20 tab",
+            "Zyrtec 10mg 20Tab (Histazin)",
+            "Histazine_10mg 20Tab",
+            "Desa 5mg 20tab (Lorias)",
+        ],
+        "search_hint": "كونجستال / فلورست / تلفاست / كلاريتين / زيرتك / حساسية / رشح",
     },
     "cough": {
         "button": "😷 كحة وبلغم",
         "title": "أدوية الكحة والبلغم",
-        "query": "كحة سعال بلغم cough mucolytic broncho ambroxol guaifenesin",
+        "popular_names": [
+            "Bisolvon Syrup 115ml (Mucocare)",
+            "Bronchicum Elixir 100ml",
+            "Bronchicum 20Lozenges Tab",
+            "Mucobrave (Acetylcistein) 600mg Effer 10sach.",
+            "Flubronk 600mg 10eff. tab (Reolin)",
+            "Oplex-N syrup 125ml",
+            "Tussivan-N 125ml Syr",
+            "Ivypront syrup 120 ml",
+            "Ventocough syrup 125 ml",
+            "All-vent syrup 125ml",
+        ],
+        "search_hint": "كحة / بلغم / بيسلفون / برونشيكم / أوبلكس / ميوكوبراف",
     },
     "gi": {
         "button": "🚽 إسهال وإمساك",
         "title": "أدوية الإسهال والإمساك",
-        "query": "اسهال امساك مغص قولون loperamide lactulose bisacodyl",
+        "popular_names": [
+            "Antinal 200mg 24cap",
+            "Antinal susp 60ml",
+            "Flagyl 500mg 20Tab Egy.",
+            "Flagyl 125mg /susp 100ml",
+            "Streptoquin 20Tab Egy",
+            "Duphalac syrup 200ml (Avilac)",
+            "Senna Lax 30tab (Laxative)",
+            "Picolax 0.75% oral drops 15ml",
+            "Glycerin adult 5 supp",
+            "Oral Rehydration Salts BP 20.5Gram. 1Sachet",
+        ],
+        "search_hint": "أنتينال / فلاجيل / ستربتوكين / دوفلاك / إمساك / إسهال",
     },
     "skin": {
         "button": "🧴 جلدية وحروق",
         "title": "أدوية الجلدية والحروق",
-        "query": "جلدية حروق مرهم كريم فطريات حساسية جلد fusidic clotrimazole panthenol",
+        "popular_names": [
+            "Fucicort Cream 15gm Egy.",
+            "Fucidin Cream 15gm Egy.",
+            "Daktarin 2% cream 15gm",
+            "Lamifen 1% Cream 15g (Tinasil)",
+            "Bepanthen Skin moisturising cream 30g",
+            "Panthenol 2% Cream 50g (El-Nile)",
+            "Silvirburn 1% Cream 30g",
+            "Contractubex 20gm Cr.",
+            "Dermovate Cream 25g Egy.",
+            "Elica-M 30g Cream",
+        ],
+        "search_hint": "فيوسيكورت / فيوسيدين / دكتارين / لاميفين / بانثينول / حروق / فطريات",
     },
     "muscle": {
         "button": "🦴 عضلات ومفاصل",
         "title": "أدوية العضلات والمفاصل",
-        "query": "عضلات مفاصل مرخي عضلات التهاب diclofenac ibuprofen gel muscle",
+        "popular_names": [
+            "Relaxon 30cap",
+            "Myofen 30cap",
+            "Dantrelax Compound 30cap",
+            "Flexilax 30tab (DIMRA)",
+            "Norflex 100mg 20 Tab",
+            "Norgesic 20Tab",
+            "Voltaren 1% emulge 25 gm",
+            "Fast freeze gel 100g",
+            "Moov Massage cream 40g",
+            "Lornoxicam 8mg 30 tab",
+        ],
+        "search_hint": "ريلاكسون / ميوفين / نورفلكس / نورجيسك / فولتارين / مرخي عضلات",
     },
     "vitamins": {
         "button": "💪 فيتامينات ومكملات",
         "title": "الفيتامينات والمكملات",
-        "query": "فيتامين مكملات vitamin omega zinc magnesium calcium iron hair",
+        "popular_names": [
+            "Davalindi 5000 IU 30Tab (Vit. D3)",
+            "Davalindi 10000 IU 30Tab (Vit. D3)",
+            "Cal-Mag D 30 Cap",
+            "Calcium D3F 30 tab",
+            "C Zinc 30Cap",
+            "Neurovit 30Tab. Egy",
+            "Milga 40tab (Neurovit)",
+            "Feroglobin 30cap",
+            "Limitless Magnesium 150mg 30Tab",
+            "Omega A.I.T 30 cap (3 Strips)",
+        ],
+        "search_hint": "فيتامين د / كالسيوم / زنك / نيوروفيت / ميلجا / حديد / أوميغا",
     },
     "kids": {
         "button": "👶 أطفال",
         "title": "أدوية ومستلزمات الأطفال",
-        "query": "اطفال شراب نقط baby syrup drops pediatric",
+        "popular_names": [
+            "Brufen 100mg/5ml syrup 150ml",
+            "Cetal 250mg/5ml sus. 60ml (Paracetamol)",
+            "Revanin 125mg syr 100ml (Paracetamol)",
+            "Congestal syrup 120ml",
+            "Claritine syrup 100ml (lorax)",
+            "Telfast 30mg/5ml Syrup 100ml",
+            "Linex Baby drop 8ml (Probiotic)",
+            "Otrivin baby saline drops 15ml",
+            "Profi Kids vita gummies (M.V.) 60gum",
+            "Profi Kids D Plus Calcium 120gummies",
+        ],
+        "search_hint": "شراب أطفال / بروفين شراب / سيتال / ريفانين / لينكس بيبي",
     },
 }
 
@@ -105,11 +219,37 @@ def category_key_from_text(text: str):
     return None
 
 
-def category_popular_results(category_key: str, limit: int = 8):
+def find_product_flexible(product_name: str):
+    target = normalize_text(product_name)
+    for idx, product in enumerate(load_products()):
+        name = normalize_text(product.get("name", ""))
+        if name == target:
+            return idx, product
+
+    # قبول اختلافات بسيطة في الكتابة
+    for idx, product in enumerate(load_products()):
+        name = normalize_text(product.get("name", ""))
+        if target and (target in name or name in target):
+            return idx, product
+
+    return None, None
+
+
+def category_popular_results(category_key: str, limit: int = 10):
     data = OTC_CATEGORIES.get(category_key)
     if not data:
         return []
-    return search_products(data["query"], limit=limit)
+
+    results = []
+    seen_indexes = set()
+
+    for popular_name in data.get("popular_names", []):
+        idx, product = find_product_flexible(popular_name)
+        if product and idx not in seen_indexes:
+            results.append((1.0, idx, product))
+            seen_indexes.add(idx)
+
+    return results[:limit]
 
 
 def category_popular_keyboard(category_key: str, results):
@@ -513,7 +653,7 @@ async def show_otc_products_to_message(message):
     await message.reply_text(
         "💊 قسم أدوية OTC\n\n"
         "اختر نوع الدواء الذي تبحث عنه:\n"
-        "سأعرض لك المنتجات المشهورة أولًا، وإذا لم تجد دواءك اضغط زر البحث داخل التصنيف.",
+        "سأعرض لك أشهر المنتجات المتوفرة في الكشف، وإذا لم تجد دواءك اضغط زر البحث داخل التصنيف.",
         reply_markup=ReplyKeyboardMarkup(OTC_CATEGORY_KEYBOARD, resize_keyboard=True),
     )
 
@@ -525,20 +665,22 @@ async def show_otc_category_to_message(message, category_key: str):
         await show_otc_products_to_message(message)
         return
 
-    results = category_popular_results(category_key, limit=8)
+    results = category_popular_results(category_key, limit=10)
     title = data["title"]
 
     if results:
         text = (
-            f"⭐ المنتجات المشهورة في {title}\n\n"
+            f"⭐ منتجات مشهورة في {title}\n\n"
             "اختر المنتج لعرض التفاصيل وإضافته للسلة.\n\n"
             f"إذا لم تجد دواءك اضغط:\n"
-            f"🔍 البحث عن {title} أخرى"
+            f"🔍 البحث عن {title} أخرى\n\n"
+            f"أمثلة للبحث: {data.get('search_hint', '')}"
         )
     else:
         text = (
-            f"لم أجد منتجات مشهورة في {title} حاليًا.\n\n"
-            "استخدم زر البحث واكتب اسم الدواء أو جزءًا منه."
+            f"لم تظهر منتجات مشهورة في {title} حاليًا.\n\n"
+            f"لكن يمكنك البحث مباشرة.\n"
+            f"أمثلة للبحث: {data.get('search_hint', '')}"
         )
 
     await message.reply_text(
@@ -802,7 +944,7 @@ async def category_search_callback(update: Update, context: ContextTypes.DEFAULT
     await query.message.reply_text(
         f"🔍 البحث داخل {data['title']}\n\n"
         "اكتب اسم الدواء أو جزءًا منه:\n"
-        "مثال: Panadol / Brufen / Gaviscon / فيتامين"
+        f"أمثلة: {data.get('search_hint', 'Panadol / Brufen / فيتامين')}"
     )
 
 
@@ -1087,7 +1229,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.pop("search_step", None)
         else:
             context.user_data.pop("search_step", None)
-            context.user_data.pop("search_category", None)
             await show_search_results_message(update.message, context, text)
             return
 
