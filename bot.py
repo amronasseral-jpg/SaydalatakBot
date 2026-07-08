@@ -29,6 +29,12 @@ from telegram.ext import (
 )
 
 from config import TOKEN, ADMIN_CHAT_ID, GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
+try:
+    from config import GOOGLE_PRODUCTS_WORKSHEET, GOOGLE_ORDERS_WORKSHEET, PRODUCTS_CACHE_TTL_SECONDS
+except Exception:
+    GOOGLE_PRODUCTS_WORKSHEET = os.getenv('GOOGLE_PRODUCTS_WORKSHEET', 'Products').strip()
+    GOOGLE_ORDERS_WORKSHEET = os.getenv('GOOGLE_ORDERS_WORKSHEET', 'Orders').strip()
+    PRODUCTS_CACHE_TTL_SECONDS = int(os.getenv('PRODUCTS_CACHE_TTL_SECONDS', '60'))
 ORDERS_FILE = "orders.json"
 
 # ===== Google Sheets Settings =====
@@ -37,9 +43,7 @@ ORDERS_FILE = "orders.json"
 # GOOGLE_PRODUCTS_WORKSHEET = Products
 # GOOGLE_ORDERS_WORKSHEET = Orders
 # GOOGLE_SERVICE_ACCOUNT_JSON = محتوى ملف service account بصيغة JSON
-GOOGLE_PRODUCTS_WORKSHEET = os.getenv("GOOGLE_PRODUCTS_WORKSHEET", "Products").strip()
-GOOGLE_ORDERS_WORKSHEET = os.getenv("GOOGLE_ORDERS_WORKSHEET", "Orders").strip()
-PRODUCTS_CACHE_TTL_SECONDS = int(os.getenv("PRODUCTS_CACHE_TTL_SECONDS", "60"))
+# تم تحميل إعدادات Google Sheets من config.py أو Railway أعلاه
 
 _products_cache = {
     "loaded_at": None,
@@ -91,17 +95,27 @@ def truthy(value):
 
 
 def get_google_client():
-    if not GOOGLE_SHEET_ID or gspread is None or Credentials is None:
+    if not GOOGLE_SHEET_ID:
+        print("GOOGLE_SHEETS_NOT_CONFIGURED: missing GOOGLE_SHEET_ID")
+        return None
+
+    if gspread is None or Credentials is None:
+        print("GOOGLE_SHEETS_NOT_CONFIGURED: install gspread and google-auth")
         return None
 
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 
-    service_account_json = GOOGLE_SERVICE_ACCOUNT_JSON
     try:
-        if service_account_json:
-            service_account_json = service_account_json.strip()
+        # الخيار الأسهل: ضع ملف service_account.json بجانب bot.py
+        if os.path.exists("service_account.json"):
+            credentials = Credentials.from_service_account_file("service_account.json", scopes=scopes)
+            return gspread.authorize(credentials)
 
-            # إذا تم لصق JSON داخل علامات اقتباس في Railway
+        # خيار بديل: لصق JSON داخل config.py أو Railway Variables
+        service_account_json = GOOGLE_SERVICE_ACCOUNT_JSON
+        if service_account_json:
+            service_account_json = str(service_account_json).strip()
+
             if (service_account_json.startswith("'") and service_account_json.endswith("'")) or (
                 service_account_json.startswith('"') and service_account_json.endswith('"')
             ):
@@ -109,13 +123,10 @@ def get_google_client():
 
             info = json.loads(service_account_json)
             credentials = Credentials.from_service_account_info(info, scopes=scopes)
-        elif os.path.exists("service_account.json"):
-            credentials = Credentials.from_service_account_file("service_account.json", scopes=scopes)
-        else:
-            print("GOOGLE_SHEETS_NOT_CONFIGURED: missing GOOGLE_SERVICE_ACCOUNT_JSON or service_account.json")
-            return None
+            return gspread.authorize(credentials)
 
-        return gspread.authorize(credentials)
+        print("GOOGLE_SHEETS_NOT_CONFIGURED: missing service_account.json or GOOGLE_SERVICE_ACCOUNT_JSON")
+        return None
 
     except Exception as e:
         print(f"GOOGLE_CLIENT_ERROR: {e}")
