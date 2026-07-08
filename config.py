@@ -46,7 +46,7 @@ def get_secret(name, default=""):
 
 
 # جلب التوكن
-TOKEN = get_secret("TOKEN") or get_secret("BOT_TOKEN")
+TOKEN = "8806198611:AAFojsi2SmbA4_RcwkaeFpX76gZQWylTkFc"
 BOT_TOKEN = TOKEN
 
 # معالجة آمنة لتحويل الأرقام لتجنب انهيار التطبيق (Crash)
