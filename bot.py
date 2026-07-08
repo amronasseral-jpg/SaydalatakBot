@@ -28,13 +28,16 @@ from telegram.ext import (
     filters,
 )
 
-from config import TOKEN, ADMIN_CHAT_ID, GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_JSON
-try:
-    from config import GOOGLE_PRODUCTS_WORKSHEET, GOOGLE_ORDERS_WORKSHEET, PRODUCTS_CACHE_TTL_SECONDS
-except Exception:
-    GOOGLE_PRODUCTS_WORKSHEET = os.getenv('GOOGLE_PRODUCTS_WORKSHEET', 'Products').strip()
-    GOOGLE_ORDERS_WORKSHEET = os.getenv('GOOGLE_ORDERS_WORKSHEET', 'Orders').strip()
-    PRODUCTS_CACHE_TTL_SECONDS = int(os.getenv('PRODUCTS_CACHE_TTL_SECONDS', '60'))
+from config import (
+    TOKEN,
+    ADMIN_CHAT_ID,
+    GOOGLE_SHEET_ID,
+    GOOGLE_SERVICE_ACCOUNT_JSON,
+    GOOGLE_PRODUCTS_WORKSHEET,
+    GOOGLE_ORDERS_WORKSHEET,
+    PRODUCTS_CACHE_TTL_SECONDS,
+    validate_config,
+)
 ORDERS_FILE = "orders.json"
 
 # ===== Google Sheets Settings =====
@@ -96,22 +99,16 @@ def truthy(value):
 
 def get_google_client():
     if not GOOGLE_SHEET_ID:
-        print("GOOGLE_SHEETS_NOT_CONFIGURED: missing GOOGLE_SHEET_ID")
+        print("GOOGLE_SHEETS_DISABLED: GOOGLE_SHEET_ID is missing")
         return None
 
     if gspread is None or Credentials is None:
-        print("GOOGLE_SHEETS_NOT_CONFIGURED: install gspread and google-auth")
+        print("GOOGLE_SHEETS_DISABLED: gspread/google-auth not installed")
         return None
 
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
 
     try:
-        # الخيار الأسهل: ضع ملف service_account.json بجانب bot.py
-        if os.path.exists("service_account.json"):
-            credentials = Credentials.from_service_account_file("service_account.json", scopes=scopes)
-            return gspread.authorize(credentials)
-
-        # خيار بديل: لصق JSON داخل config.py أو Railway Variables
         service_account_json = GOOGLE_SERVICE_ACCOUNT_JSON
         if service_account_json:
             service_account_json = str(service_account_json).strip()
@@ -125,11 +122,15 @@ def get_google_client():
             credentials = Credentials.from_service_account_info(info, scopes=scopes)
             return gspread.authorize(credentials)
 
-        print("GOOGLE_SHEETS_NOT_CONFIGURED: missing service_account.json or GOOGLE_SERVICE_ACCOUNT_JSON")
+        if os.path.exists("service_account.json"):
+            credentials = Credentials.from_service_account_file("service_account.json", scopes=scopes)
+            return gspread.authorize(credentials)
+
+        print("GOOGLE_SHEETS_DISABLED: missing GOOGLE_SERVICE_ACCOUNT_JSON or service_account.json")
         return None
 
     except Exception as e:
-        print(f"GOOGLE_CLIENT_ERROR: {e}")
+        print(f"GOOGLE_CLIENT_ERROR: {type(e).__name__}: {e}", flush=True)
         return None
 
 
@@ -1370,10 +1371,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    print("Starting bot...")
-    print("STARTUP_TOKEN =", "YES" if TOKEN else "NO", flush=True)
-    print("STARTUP_GOOGLE_SHEET_ID =", "YES" if GOOGLE_SHEET_ID else "NO", flush=True)
-    print("STARTUP_GOOGLE_JSON =", "YES" if GOOGLE_SERVICE_ACCOUNT_JSON else "NO", flush=True)
+    print("Starting bot...", flush=True)
+    validate_config()
+    print("Bot config loaded successfully.", flush=True)
 
     app = ApplicationBuilder().token(TOKEN).build()
 

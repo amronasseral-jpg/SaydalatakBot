@@ -1,5 +1,12 @@
-service_account.json
-*.json
+# secrets
 .env
+local_settings.py
+service_account.json
+*.secret.json
+
+# python
 __pycache__/
 *.pyc
+
+# local data
+orders.json
