@@ -25,10 +25,6 @@ def _clean(value):
     return value
 
 
-def get_setting(name, default=""):
-    return _clean(os.getenv(name) or default)
-
-
 LOCAL = {}
 try:
     from local_settings import LOCAL_SECRETS
@@ -39,13 +35,30 @@ except Exception:
 
 
 def get_secret(name, default=""):
-    return _clean(os.getenv(name) or LOCAL.get(name) or default)
+    # جلب القيمة أولاً من البيئة، ثم من الملف المحلي
+    val = os.getenv(name)
+    if val is None:
+        val = LOCAL.get(name)
+    
+    cleaned = _clean(val)
+    # إذا كانت القيمة فارغة بعد التنظيف، نرجع القيمة الافتراضية
+    return cleaned if cleaned != "" else _clean(default)
 
 
+# جلب التوكن
 TOKEN = get_secret("TOKEN") or get_secret("BOT_TOKEN")
 BOT_TOKEN = TOKEN
 
-ADMIN_CHAT_ID = int(get_secret("ADMIN_CHAT_ID", "1027957590"))
+# معالجة آمنة لتحويل الأرقام لتجنب انهيار التطبيق (Crash)
+try:
+    ADMIN_CHAT_ID = int(get_secret("ADMIN_CHAT_ID", "1027957590"))
+except ValueError:
+    ADMIN_CHAT_ID = 1027957590
+
+try:
+    PRODUCTS_CACHE_TTL_SECONDS = int(get_secret("PRODUCTS_CACHE_TTL_SECONDS", "60"))
+except ValueError:
+    PRODUCTS_CACHE_TTL_SECONDS = 60
 
 GOOGLE_SHEET_ID = get_secret(
     "GOOGLE_SHEET_ID",
@@ -54,7 +67,6 @@ GOOGLE_SHEET_ID = get_secret(
 
 GOOGLE_PRODUCTS_WORKSHEET = get_secret("GOOGLE_PRODUCTS_WORKSHEET", "Products")
 GOOGLE_ORDERS_WORKSHEET = get_secret("GOOGLE_ORDERS_WORKSHEET", "Orders")
-PRODUCTS_CACHE_TTL_SECONDS = int(get_secret("PRODUCTS_CACHE_TTL_SECONDS", "60"))
 
 GOOGLE_SERVICE_ACCOUNT_JSON = (
     get_secret("GOOGLE_SERVICE_ACCOUNT_JSON")
@@ -63,7 +75,8 @@ GOOGLE_SERVICE_ACCOUNT_JSON = (
 
 
 def _looks_like_telegram_token(token):
-    return bool(re.match(r"^\d{8,12}:[A-Za-z0-9_-]{30,}$", token or ""))
+    # تم تعديل الريجكس ليدعم المعرفات الطويلة للبوتات الجديدة (+10 خانات)
+    return bool(re.match(r"^\d{8,15}:[A-Za-z0-9_-]{35,}$", token or ""))
 
 
 def validate_config():
